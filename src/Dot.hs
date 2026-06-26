@@ -24,6 +24,7 @@ module Dot
   , bnSqReluMul
   , bnAdd
   , decodeBf16
+  , countTrits
   ) where
 
 import qualified Data.ByteString as BS
@@ -59,6 +60,8 @@ foreign import ccall "bndot.h bnadd"
   c_add :: CString -> CString -> Int -> Ptr Float -> IO ()
 foreign import ccall "bndot.h bf16_to_f32"
   c_bf16_to_f32 :: CString -> Int -> Ptr Float -> IO ()
+foreign import ccall "bndot.h count_trits"
+  c_count_trits :: CString -> Int -> Ptr Int -> IO ()
 
 -- | A whole W1.58 BitLinear matmul: @outDim@ raw integer dots (as Double) of the
 -- packed ternary weight against the int8 activations @xqBS@. One FFI call; the
@@ -206,3 +209,14 @@ bnAdd a b n = withOut n $ \ out ->
 decodeBf16 :: BS.ByteString -> Int -> BS.ByteString
 decodeBf16 src n = withOut n $ \ out ->
   unsafeUseAsCStringLen src $ \ (sp, _) -> c_bf16_to_f32 sp n out
+
+-- | Count the 2-bit ternary fields of a packed weight: @(#-1, #0, #+1, #unused)@.
+countTrits :: BS.ByteString -> (Int, Int, Int, Int)
+countTrits packed = unsafePerformIO $
+  unsafeUseAsCStringLen packed $ \ (p, n) ->
+  allocaBytes (4 * 8) $ \ out -> do
+    c_count_trits p n out
+    cs <- mapM (peekElemOff (out :: Ptr Int)) [0 .. 3]
+    case cs of
+      [c0, c1, c2, c3] -> return (c0, c1, c2, c3)
+      _                -> return (0, 0, 0, 0)

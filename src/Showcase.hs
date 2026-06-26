@@ -10,9 +10,11 @@
 -- Run it to see the combinators a real BitNet weight row generates.
 module Showcase(main) where
 
+import Data.List (foldl')
 import BitLinear (Trit(..), toTrit, dotTrits, dotRow, rowTrits)
 import Safetensors (Tensor(..), lookupTensor)
 import Loader (loadModel, slice)
+import Dot (countTrits)
 
 infixl 9 :@
 
@@ -182,3 +184,28 @@ main = do
           -- bytes -- the production list-op path, here over the same 6 weights.
           byBytes = dotRow packed inDim chunk 0 acts6
       demoRow "real BitNet q_proj row 0 (first 6 weights)" trits6 acts6 (Just byBytes)
+
+  -- the whole model as list operations: count every ternary weight, and estimate
+  -- the size of the (astronomical) iota tree the model would expand to.
+  putStrLn "=== the whole model as list operations ==="
+  let linNames = [ "model.layers." ++ show i ++ "." ++ s ++ ".weight"
+                 | i <- [0 .. 29 :: Int]
+                 , s <- [ "self_attn.q_proj", "self_attn.k_proj", "self_attn.v_proj"
+                        , "self_attn.o_proj", "mlp.gate_proj", "mlp.up_proj", "mlp.down_proj" ] ]
+      counts = [ countTrits (slice dat wt) | nm <- linNames, Just wt <- [lookupTensor nm ts] ]
+      (nNeg, nZero, nPos) = foldl' (\ (a, b, c) (n, z, p, _) -> (a + n, b + z, c + p)) (0, 0, 0) counts
+      total = nNeg + nZero + nPos
+      pct x = let pm = x * 1000 `div` total in show (pm `div` 10) ++ "." ++ show (pm `mod` 10) ++ "%"
+  putStrLn ("ternary weights across " ++ show (length counts) ++ " BitLinear layers: " ++ show total)
+  putStrLn ("  +1  identity  I:   " ++ show nPos  ++ "  (" ++ pct nPos  ++ ")")
+  putStrLn ("   0  drop      K:   " ++ show nZero ++ "  (" ++ pct nZero ++ ")")
+  putStrLn ("  -1  negate    C P: " ++ show nNeg  ++ "  (" ++ pct nNeg  ++ ")")
+  let sI  = size (toIota I)
+      sK  = size (toIota K)
+      sCP = size (toIota (C :@ P))
+      iotaNodes = fromIntegral nPos  * fromIntegral sI
+                + fromIntegral nZero * fromIntegral sK
+                + fromIntegral nNeg  * fromIntegral sCP :: Integer
+  putStrLn ("as iota trees (I=" ++ show sI ++ ", K=" ++ show sK ++ ", C P=" ++ show sCP ++ " nodes each):")
+  putStrLn ("  the whole model is " ++ show iotaNodes ++ " iota (i) nodes")
+  putStrLn "  -- a credible witness, computed; not a tree we materialize."

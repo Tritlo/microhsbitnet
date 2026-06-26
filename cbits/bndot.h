@@ -22,6 +22,9 @@ double bndot_f32(const void *w, const void *a, int n);
 /* Decode n bf16 values to float32 (one-time weight setup). */
 void bf16_to_f32(const void *src, int n, float *out);
 
+/* Count the 2-bit ternary fields of a packed weight: out[v] = #fields == v. */
+void count_trits(const void *packed, int nbytes, void *out);
+
 /* ---- per-token vector math (generation path) ---- */
 
 /* out = w * x / sqrt(mean(x^2) + eps). */

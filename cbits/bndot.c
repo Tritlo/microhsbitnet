@@ -130,6 +130,25 @@ int bnargmax_bf16(const void *embed, const void *hF32, int hidden, int vocab, do
   return bestI;
 }
 
+/* Count the 2-bit ternary fields in a packed weight: out[v] gets the number of
+ * fields equal to v (v=0 -> -1, v=1 -> 0, v=2 -> +1; v=3 is unused). For the
+ * showcase's whole-model trit histogram. Indices are intptr_t-wide. */
+void count_trits(const void *packed, int nbytes, void *out4v) {
+  const unsigned char *p = (const unsigned char *)packed;
+  intptr_t *out = (intptr_t *)out4v;
+  long c0 = 0, c1 = 0, c2 = 0, c3 = 0;
+  int i;
+  for (i = 0; i < nbytes; i++) {
+    unsigned char b = p[i];
+    int f0 = b & 3, f1 = (b >> 2) & 3, f2 = (b >> 4) & 3, f3 = (b >> 6) & 3;
+    c0 += (f0 == 0) + (f1 == 0) + (f2 == 0) + (f3 == 0);
+    c1 += (f0 == 1) + (f1 == 1) + (f2 == 1) + (f3 == 1);
+    c2 += (f0 == 2) + (f1 == 2) + (f2 == 2) + (f3 == 2);
+    c3 += (f0 == 3) + (f1 == 3) + (f2 == 3) + (f3 == 3);
+  }
+  out[0] = c0; out[1] = c1; out[2] = c2; out[3] = c3;
+}
+
 /* Decode n bf16 values (little-endian) to float32. For one-time weight setup
  * (e.g. the RMSNorm weights) — bf16->f32 is the high 16 bits, so (bits << 16). */
 void bf16_to_f32(const void *srcv, int n, float *out) {
