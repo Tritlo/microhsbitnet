@@ -32,3 +32,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   transformers oracle (`test/oracle_m2.py`) to ~5-6 sig figs at first/last positions. The oracle
   reinterprets this transformers version's broken uint8 (`-1→255` underflow) BitLinear weights as
   int8 to recover proper ternary, loading the model in float32.
+- **`bndot` runtime primitive** (branch `runtime-ternary-dot`): vendored MicroHs at
+  `vendor/microhs/` (full history) and added one weighted-dot opcode to its runtime — kind 0
+  ternary×int8 (BitLinears), kind 1 bf16×float32 (LM head) — done in C, bound via `_primitive`
+  (no FFI). Pure MicroHs caps at ~10 s/BitLinear (combinator graph reduction); the primitive makes
+  it negligible. `src/Dot.hs` hosts the binding, `bitLinearPrim`, and the LM-head `lmLogit`.
+- **M3 — full forward** (`src/M3.hs`): embed → 30 layers → final norm → tied LM head → logits.
+  Runs in **~25 s** (was ~55 min pure) and predicts **argmax token 11**, matching the HF oracle
+  (`test/oracle_m3.py`). Per-layer math stays oracle-exact; ~0.6% drift on the final hidden is
+  expected float-order accumulation over depth.

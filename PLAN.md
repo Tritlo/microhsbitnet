@@ -35,13 +35,16 @@ pure restructurings (4-output batching, unpacked-list bytes, multiply vs conditi
 
 So the hot dot is a **runtime primitive**, not FFI: MicroHs is vendored at `vendor/microhs/`
 (full history, for upstream `subtree push`) and its runtime gains one opcode —
-`ternarydot rowBytes xq shift` in `vendor/microhs/src/runtime/eval.c` — computing
-`sum_c (field(rowBytes[c],shift)-1) * xq[c]` in C. Bound from Haskell in
-[`src/TernaryDot.hs`](src/TernaryDot.hs) via the `_primitive` keyword (no `foreign import`).
-The list-op `dotTrits` stays the spec the primitive must match.
+`bndot kind weights acts shift len` in `vendor/microhs/src/runtime/eval.c` — that does the dot
+in C and returns a Float. One primitive covers both BitNet dots (kind picked once, outside the
+inner loop): **kind 0** = ternary×int8 (`(field(w,shift)-1) * a`, the BitLinears), **kind 1** =
+bf16×float32 (`bf16(w) * a`, the LM head). Bound from Haskell in [`src/Dot.hs`](src/Dot.hs) via
+the `_primitive` keyword (no `foreign import`). The list-op `dotTrits` stays the spec for kind 0.
 
-Result: the q_proj dot drops from ~10 s of CPU to negligible (~100–1000×); a BitLinear run is
-now dominated by model I/O.
+Result: q_proj ~10 s → negligible; full decoder block (M2) ~3.5 min → 3.5 s; **full 30-layer
+forward + LM head (M3) ~55 min → ~25 s**, argmax matching HF (token 11). Per-layer math stays
+oracle-exact (M2 ~1e-5); the ~0.6% drift on M3's final hidden is float-order accumulation over
+30 layers re-quantized to int8, within the ~1e-2 target.
 
 **Build with the vendored runtime** (the op is compiled into the executable at link time from
 `MHSDIR/src/runtime/eval.c`):

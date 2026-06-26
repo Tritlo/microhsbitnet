@@ -7,7 +7,7 @@ module M1(main) where
 import qualified Data.ByteString as BS
 import Safetensors (Tensor(..), lookupTensor, bf16At)
 import Loader (loadModel, slice)
-import TernaryDot (bitLinearPrim, quantizeActBS)
+import Dot (bitLinearPrim, quantizeActBS)
 
 modelPath :: String
 modelPath = "models/bitnet-b1.58-2B-4T/model.safetensors"

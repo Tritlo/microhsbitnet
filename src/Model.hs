@@ -17,7 +17,7 @@ module Model
 
 import qualified Data.ByteString as BS
 import Safetensors (bf16At)
-import BitLinear (quantizeAct, bitLinearFast)
+import Dot (quantizeActBS, bitLinearPrim)
 
 -- Model dimensions (BitNet b1.58 2B4T).
 cHidden, cHeads, cKV, cHeadDim :: Int
@@ -42,8 +42,8 @@ data Lin = Lin
 -- matmul and rescale.
 applyLin :: Lin -> [Float] -> [Float]
 applyLin (Lin p inD outD sc) x =
-  let (xq, ascale) = quantizeAct x
-  in bitLinearFast p inD outD sc xq ascale
+  let (xqBS, ascale) = quantizeActBS x
+  in bitLinearPrim p inD outD sc xqBS ascale
 
 -- | RMSNorm in float32: @weight * x / sqrt(mean(x^2) + eps)@.
 rmsNorm :: [Float] -> [Float] -> [Float]
