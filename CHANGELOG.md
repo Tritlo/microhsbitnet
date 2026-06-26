@@ -41,3 +41,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Runs in **~25 s** (was ~55 min pure) and predicts **argmax token 11**, matching the HF oracle
   (`test/oracle_m3.py`). Per-layer math stays oracle-exact; ~0.6% drift on the final hidden is
   expected float-order accumulation over depth.
+- **bndot generalized** to a per-type quantized-dot kernel (kinds 0-8: W1.58/bf16/f32/int8/int4/
+  fp16/fp8-E4M3), unit-tested in `src/TestKinds.hs`. Kind 2 (f32×f32) backs attention `q·k`.
+- **M4 — generation** (`src/M4.hs`, shared forward in `src/Forward.hs`): greedy autoregressive
+  decoding. Given the chat prompt "User: Hello! Assistant:", it generates **"Hello! How can I
+  assist you today?"** — matching HF greedy generation (`test/oracle_m4.py`) token-for-token.
+  No KV cache yet, so ~2-3 min/token. Tokenization is offline (`test/toktool.py`).
