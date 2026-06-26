@@ -7,7 +7,7 @@ module M1(main) where
 import qualified Data.ByteString as BS
 import Safetensors (Tensor(..), lookupTensor, bf16At)
 import Loader (loadModel, slice)
-import BitLinear (rowTrits, dotTrits, quantizeAct)
+import BitLinear (dotRow, quantizeAct)
 
 modelPath :: String
 modelPath = "models/bitnet-b1.58-2B-4T/model.safetensors"
@@ -29,7 +29,8 @@ main = do
           wscale = bf16At (slice dat st) 0
           x = mkInput inDim
           (xq, ascale) = quantizeAct x
-          idots = [ dotTrits (rowTrits packed inDim outDim r) xq | r <- [0 .. outDim - 1] ]
+          chunk = outDim `div` 4
+          idots = [ dotRow packed inDim chunk r xq | r <- [0 .. outDim - 1] ]
           ys    = map (\d -> fromIntegral d * wscale / ascale) idots
       putStrLn ("inDim=" ++ show inDim ++ " outDim=" ++ show outDim)
       putStrLn ("wscale=" ++ show wscale)
