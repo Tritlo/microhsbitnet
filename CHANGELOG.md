@@ -32,17 +32,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   transformers oracle (`test/oracle_m2.py`) to ~5-6 sig figs at first/last positions. The oracle
   reinterprets this transformers version's broken uint8 (`-1→255` underflow) BitLinear weights as
   int8 to recover proper ternary, loading the model in float32.
-- **`bndot` runtime primitive** (branch `runtime-ternary-dot`): vendored MicroHs at
-  `vendor/microhs/` (full history) and added one weighted-dot opcode to its runtime — kind 0
-  ternary×int8 (BitLinears), kind 1 bf16×float32 (LM head) — done in C, bound via `_primitive`
-  (no FFI). Pure MicroHs caps at ~10 s/BitLinear (combinator graph reduction); the primitive makes
-  it negligible. `src/Dot.hs` hosts the binding, `bitLinearPrim`, and the LM-head `lmLogit`.
+- **`bndot` C kernel via FFI** (`cbits/bndot.c`, bound in `src/Dot.hs`): the hot dot runs in C,
+  called by a plain `foreign import ccall` — no MicroHs runtime patch, no custom primitive (MicroHs
+  is vendored at `vendor/microhs/` as clean upstream, pinned). Three dedicated functions, one per
+  use: `bndot_ternary` (W1.58 ternary×int8 BitLinears), `bndot_bf16` (bf16×f32 LM head), `bndot_f32`
+  (f32×f32 attention q·k); each returns a Double, scales applied caller-side (`bitLinearPrim`,
+  `lmLogit`, `floatDot`). Bytestrings pass as raw pointers (`unsafeUseAsCStringLen`, no copy); float
+  reads use `memcpy` (alignment-safe). Pure MicroHs caps at ~10 s/BitLinear (combinator graph
+  reduction); the kernel makes it negligible. Unit-tested in `src/TestKinds.hs`; the list-op
+  `dotTrits` stays the spec for the ternary case.
 - **M3 — full forward** (`src/M3.hs`): embed → 30 layers → final norm → tied LM head → logits.
   Runs in **~25 s** (was ~55 min pure) and predicts **argmax token 11**, matching the HF oracle
   (`test/oracle_m3.py`). Per-layer math stays oracle-exact; ~0.6% drift on the final hidden is
   expected float-order accumulation over depth.
-- **bndot generalized** to a per-type quantized-dot kernel (kinds 0-8: W1.58/bf16/f32/int8/int4/
-  fp16/fp8-E4M3), unit-tested in `src/TestKinds.hs`. Kind 2 (f32×f32) backs attention `q·k`.
 - **M4 — generation** (`src/M4.hs`, shared forward in `src/Forward.hs`): greedy autoregressive
   decoding with a **KV cache**. Given the chat prompt "User: Hello! Assistant:", it generates
   **"Hello! How can I assist you today?"** — matching HF greedy generation (`test/oracle_m4.py`)
@@ -55,8 +57,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `dotTrits`, plus iota-tree encodings (`i = \f. f S K`; `I = i i`, `K = i(i(i i))`). Runs on a
   real q_proj row to show the combinators a BitNet weight row generates.
 - **Haskell tokenizer** (`src/Tokenizer.hs`): byte-level BPE encode + decode, no Python. The
-  GPT-2 byte↔unicode table is computed; tokenizer.json is parsed (UTF-8) for vocab + merges into
-  sorted `Mhs.Array` lookups (no `Data.Map`). Encode = hand-written Llama 3 pre-tokenizer +
+  GPT-2 byte↔unicode table is computed; tokenizer.json is parsed for vocab + merges into sorted
+  `Mhs.Array` lookups (no `Data.Map`), UTF-8 encode/decode via MicroHs's `packUTF8`/`primBSfromUTF8`.
+  Encode = hand-written Llama 3 pre-tokenizer +
   byte-level + BPE (`ignore_merges`, lazy merges); the chat template wraps it. `encodeChat
   "Hello!"` → the exact Python ids, and decode round-trips. M4 now takes a prompt *string* and
   prints generated *text* — the whole pipeline (tokenize → model → generate → detokenize) is pure
@@ -71,3 +74,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (prepend not `++`, attention is order-independent); fused `rmsNorm` into one strict pass and
   precomputed RoPE inverse frequencies; fixed an M4 off-by-one (could emit `nGen+1` tokens) and a
   `utf8enc` 4-byte gap. All outputs unchanged (M2 oracle, M3 token 11, tokenizer round-trip).
+- **FFI fast path replaces the runtime primitive** (driven by a PR review): the in-runtime `bndot`
+  opcode had two blockers — a `WANT_FLOAT64 0` compile break on five targets and an un-wired
+  interpreter (`Translate.hs`) path — and didn't fit MicroHs's minimal/microcontroller framing. All
+  three are artifacts of baking a kernel into core MicroHs; moving it to `cbits/bndot.c` behind a
+  plain `foreign import ccall` dissolves them, leaving stock MicroHs untouched. The vendored fork is
+  reverted to clean upstream (pinned, reproducible) and a `Makefile` captures the build. The kernel
+  is trimmed to the three dots BitNet uses (ternary/bf16/f32); the int4/int8/fp16/fp8 modes existed
+  only for a general upstream PR, now abandoned. The tokenizer drops its hand-rolled UTF-8 codecs for
+  MicroHs's `packUTF8`/`primBSfromUTF8`. All outputs identical (M2 oracle, M3 token 11, M4 text,
+  `TestKinds`).

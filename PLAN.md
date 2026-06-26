@@ -27,34 +27,39 @@ build the elegant, correct reference, validate against an oracle, measure, then 
 - MicroHs has `Double`/`Float`, `Word8`, `Data.Bits` (`shiftR`, `.&.`), `ByteString`,
   `Foreign.Storable` (Word8/Word32/Float/Double), `Data.Array`, `STRef`, FFI.
 
-## Runtime primitive (fast path — branch `runtime-ternary-dot`)
+## Fast path — C kernel via FFI
 
 Pure MicroHs caps at ~10 s per 2560×2560 BitLinear: the combinator runtime does ~6.5M
 graph reductions for one matmul, and `BS.index` + boxed arithmetic dominate. None of the
 pure restructurings (4-output batching, unpacked-list bytes, multiply vs conditional) beat it.
 
-So the hot dot is a **runtime primitive**, not FFI: MicroHs is vendored at `vendor/microhs/`
-(full history, for upstream `subtree push`) and its runtime gains one opcode —
-`bndot kind weights acts shift len` in `vendor/microhs/src/runtime/eval.c` — that does a
-general quantized dot in C and returns a Double (`sum_c decode_w(w,c) * decode_a(a,c)`, accumulated
-in double). Like ggml's per-type `vec_dot`, it is pure decode-and-accumulate — quantization
-**scales/zero-points are the caller's job** (per tensor/group, outside) — and the kind is picked
-once, outside the inner loop. Kinds (weight × activation): **0** W1.58 ternary×int8 (BitNet,
-`shift` selects the field), **1** bf16×f32, **2** f32×f32 (attention), **3** int8×int8 (W8A8),
-**4** int8×f32, **5** int4×int8 (W4A8), **6** int4×f32 (GPTQ/AWQ), **7** fp16×f32, **8** fp8
-E4M3×f32. Bound from Haskell in [`src/Dot.hs`](src/Dot.hs) via the `_primitive` keyword (no
-`foreign import`). The model uses 0/1/2; all nine are unit-tested in `src/TestKinds.hs`. The
-list-op `dotTrits` stays the spec for kind 0.
+So the hot dot is a **C kernel called via FFI** — [`cbits/bndot.c`](cbits/bndot.c), three plain
+`foreign import ccall`s from [`src/Dot.hs`](src/Dot.hs), with **no MicroHs runtime patch and no
+custom primitive**. BitNet needs exactly three dots, so there are three dedicated functions (not
+one general dispatch): **`bndot_ternary`** W1.58 ternary×int8 (`shift` selects the 2-bit field —
+the BitLinears), **`bndot_bf16`** bf16×f32 (tied LM head), **`bndot_f32`** f32×f32 (attention q·k).
+Each returns a Double (`sum_c decode_w(w,c)·decode_a(a,c)`, accumulated in double); like ggml's
+per-type `vec_dot` they are pure decode-and-accumulate, so quantization **scales/zero-points are
+the caller's job** (per tensor/group, in Haskell). All three are unit-tested in
+`src/TestKinds.hs`; the list-op `dotTrits` stays the spec for the ternary case.
+
+The bytestrings reach C as raw pointers with no copy (`unsafeUseAsCStringLen`); `bnDot` is pure in
+its immutable inputs, so the FFI call is wrapped in `unsafePerformIO`, run in `IO` inside the
+pointer's scope so it stays live. Float reads go through `memcpy`, so an arbitrary substring offset
+never causes a misaligned load.
 
 Result: q_proj ~10 s → negligible; full decoder block (M2) ~3.5 min → 3.5 s; **full 30-layer
 forward + LM head (M3) ~55 min → ~25 s**, argmax matching HF (token 11). Per-layer math stays
 oracle-exact (M2 ~1e-5); the ~0.6% drift on M3's final hidden is float-order accumulation over
 30 layers re-quantized to int8, within the ~1e-2 target.
 
-**Build with the vendored runtime** (the op is compiled into the executable at link time from
-`MHSDIR/src/runtime/eval.c`):
+**Build** — pass the kernel and its header dir on the gmhs line. MicroHs is vendored at
+`vendor/microhs/` (clean upstream, pinned) and supplies the lib + runtime; the kernel links in
+like any `.c` argument:
 
-    MHSDIR=$PWD/vendor/microhs ~/Code/MicroHs/bin/gmhs -isrc <Module> -obin/<out>
+    MHSDIR=$PWD/vendor/microhs ~/Code/MicroHs/bin/gmhs -isrc -Icbits <Module> cbits/bndot.c -obin/<out>
+
+(Modules without the fast path — M0, TestTok, Showcase — drop `-Icbits cbits/bndot.c`.)
 
 ## MicroHs IO constraints (verified)
 

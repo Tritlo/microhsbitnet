@@ -16,8 +16,8 @@ module Tokenizer
 import Data.Char (isSpace, isDigit, isAlpha, ord, chr)
 import Data.List (sortBy)
 import Data.Word (Word8)
-import Data.Bits ((.&.))
 import qualified Data.ByteString as BS
+import Data.ByteString.Internal (packUTF8, primBSfromUTF8)
 import System.IO (openBinaryFile, hClose, IOMode(ReadMode), Handle)
 import Mhs.Array (Array, listArray, accumArray, (!))
 
@@ -34,28 +34,8 @@ byteToLevel :: Int -> Int
 byteToLevel b | (b >= 33 && b <= 126) || (b >= 161 && b <= 172) || (b >= 174) = b
               | otherwise = 256 + length (takeWhile (/= b) nonPrintable)
 
--- ---------- UTF-8 ----------
-
-utf8dec :: [Word8] -> [Int]
-utf8dec [] = []
-utf8dec (b : bs)
-  | b < 0x80  = fromIntegral b : utf8dec bs
-  | b < 0xE0  = case bs of (b1 : r)           -> two b b1 : utf8dec r;        _ -> []
-  | b < 0xF0  = case bs of (b1 : b2 : r)      -> three b b1 b2 : utf8dec r;   _ -> []
-  | otherwise = case bs of (b1 : b2 : b3 : r) -> four b b1 b2 b3 : utf8dec r; _ -> []
-  where
-    lo x        = fromIntegral (x .&. 0x3F)
-    two x y     = fromIntegral (x .&. 0x1F) * 64 + lo y
-    three x y z = (fromIntegral (x .&. 0x0F) * 64 + lo y) * 64 + lo z
-    four x y z w = ((fromIntegral (x .&. 0x07) * 64 + lo y) * 64 + lo z) * 64 + lo w
-
-utf8enc :: Int -> [Int]
-utf8enc c
-  | c < 0x80    = [c]
-  | c < 0x800   = [0xC0 + c `div` 64, 0x80 + c `mod` 64]
-  | c < 0x10000 = [0xE0 + c `div` 4096, 0x80 + (c `div` 64) `mod` 64, 0x80 + c `mod` 64]
-  | otherwise   = [ 0xF0 + c `div` 262144, 0x80 + (c `div` 4096) `mod` 64
-                  , 0x80 + (c `div` 64) `mod` 64, 0x80 + c `mod` 64 ]
+-- UTF-8 encode/decode now come from MicroHs (Data.ByteString.Internal): the file
+-- is decoded with 'primBSfromUTF8' and a pre-token is UTF-8 encoded with 'packUTF8'.
 
 -- ---------- JSON-ish scanning ----------
 
@@ -187,7 +167,7 @@ readFileBS path = do
 loadTokenizer :: String -> IO Tokenizer
 loadTokenizer path = do
   bs <- readFileBS path
-  let s          = map chr (utf8dec (BS.unpack bs))
+  let s          = primBSfromUTF8 bs
       vocabBody  = drop 1 (dropWhile (/= '{') (afterPat "\"vocab\":" s))
       addedBody  = takeWhile (/= ']') (afterPat "\"added_tokens\":" s)
       mergesBody = takeWhile (/= ']') (afterPat "\"merges\":" s)
@@ -200,9 +180,10 @@ loadTokenizer path = do
       mlookup    = mkLookup (zip (parseMerges mergesBody) [0 ..])  -- lazy: only forced if BPE runs
   return (Tokenizer decTbl vlookup mlookup)
 
--- byte-level encode one pre-token to its byte-level string.
+-- byte-level encode one pre-token to its byte-level string: its UTF-8 bytes
+-- (via 'packUTF8') mapped through the GPT-2 byte->codepoint alphabet.
 toByteLevel :: String -> String
-toByteLevel = concatMap (\c -> map (chr . byteToLevel) (utf8enc (ord c)))
+toByteLevel s = map (chr . byteToLevel . fromIntegral) (BS.unpack (packUTF8 s))
 
 -- BPE one pre-token (byte-level string) to ids. ignore_merges: a whole pre-token
 -- in the vocab is emitted directly; otherwise merge by rank.
