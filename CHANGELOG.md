@@ -109,3 +109,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a byte-level string, matching the C tables, so results are identical). `encodeChat "Hello!"` still
   gives the exact Python ids and decode round-trips. Full M4 (encode → 30-layer generation → decode)
   is now **0:15** — down from 6:10 at the start of the performance work (~25×).
+- **Facts + polish pass** (M4 ~15 s → **~4 s**, ~16 GB → **~1.2–2 GB**): phase timings in M4 (which
+  exposed that "prefill" was really lazy norm-weight decode in the combinator runtime → a
+  `bf16_to_f32` C kernel cut weight setup 11.6 s → 0.9 s); a direct f32 argmax (no final-norm
+  round-trip); CLI args (`m4 PROMPT NGEN`); stop-token stripping from displayed text. The old
+  `-H1G` (~16 GB RSS) was a Haskell-graph relic — M4 now runs on the **default heap** in ~1.2–2 GB.
+  C cleanups: `bnrope` cached its constant `inv_freq` (was recomputed every call), `bnbitlinear`/
+  `bnattend` use stack scratch (was per-call malloc), and `tokparse.c` got bounds checks (the fixed
+  caps could overflow on a malformed file).
+- **Interactive chat** (`bin/chat`): a multi-turn REPL whose KV cache persists across turns (each
+  turn prefills only the new `User: …<eot>Assistant: ` segment). The chat template is generalized
+  to multi-message + roles + an optional system prompt (matching the model's `chat_template`).
+  Optional **sampling** — a `bntopk_bf16` top-K kernel in C, with the policy (temperature, top-p
+  over the top-K, xorshift RNG) in Haskell (`Sample.hs`); env-controlled (`BN_TEMP`/`BN_TOPP`/
+  `BN_TOPK`/`BN_SEED`), greedy by default and deterministic per seed.
+- **The artifact**: a `README.md` telling the story (thesis → oracle ladder → the 6:10 → ~4 s
+  journey → the meaning-in-Haskell/execution-in-C split), and an expanded `Showcase` that tallies
+  every ternary weight of the real model (2.08 B: 42.2% drop, 28.8% each ±1) and estimates the
+  ~98 billion-node iota tree the whole model would expand to — a computed witness, not a built tree.
