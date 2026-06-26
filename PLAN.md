@@ -22,10 +22,22 @@ build the elegant, correct reference, validate against an oracle, measure, then 
 
 ## Toolchain
 
-- Compile with **`gmhs`** (`~/Code/MicroHs/bin/gmhs Mod -oOut`). The combinator `mhs` OOMs on
-  default heap; run compiled programs with `+RTS -H<cells> -K<stack> -RTS` as needed.
-- MicroHs has `Double`/`Float`, `Word8`, `ByteString` (`hGet`, `index`, `useAsCStringLen`),
-  `Foreign.Storable`/`Marshal.Array`, `Data.Array`, `STRef`, FFI — enough for the loader.
+- Compile with **`gmhs`** from this repo: `~/Code/MicroHs/bin/gmhs -isrc -i$MHS/lib Mod -obin/out`
+  (the combinator `mhs` OOMs on default heap; `gmhs`, the GHC-built compiler, works).
+- MicroHs has `Double`/`Float`, `Word8`, `Data.Bits` (`shiftR`, `.&.`), `ByteString`,
+  `Foreign.Storable` (Word8/Word32/Float/Double), `Data.Array`, `STRef`, FFI.
+
+## MicroHs IO constraints (verified)
+
+- **`BS.empty` / `BS.concat` / `BS.pack []` are broken** (OOM — `empty = pack []` and the
+  empty-list pack hangs). This also breaks `BS.readFile` / `hGetContents` (`concat = foldr
+  append empty`). Use `openBinaryFile` + fixed-count `BS.hGet`, and combine chunks by seeding
+  an accumulator with the first read and `BS.append`-ing only non-empty chunks (never `empty`).
+- No `hSeek`, no `hFileSize`, no `getFileSize`. Fine: safetensors is self-describing — read the
+  8-byte LE u64 header length, read that many header bytes, and the data-section size is
+  `max(data_offsets.end)` from the header. Read the data section in chunks (`hGet` short-reads at
+  EOF) into one resident `ByteString`; slice tensors with `BS.take`/`drop`/`index`.
+- bf16→f32: `(u16 << 16)` reinterpreted via `Foreign` `poke Word32` / `peek Float`.
 
 ## Milestones
 
@@ -45,6 +57,24 @@ build the elegant, correct reference, validate against an oracle, measure, then 
 
 HF `transformers` (torch) in a `uv` venv, used only to dump golden per-layer activations and
 logits for fixed token-ID inputs. Test-time only — never a runtime dependency.
+
+## Memory model (avoid eval spikes)
+
+Packed weights (~1.2 GB) sit resident in `ByteString` — a `ForeignPtr`, **off the combinator
+cell-heap**, loaded once and reused across all M4 tokens (no per-token disk re-read). The
+discipline that keeps eval flat: **strict per-row unpack/fold/discard** (transient working set
+O(row), never O(matrix)). The other M4 growth term is the **KV cache** (~38K ints/token →
+blows the 50M-cell heap near full context); keep it off-heap (`Storable` array) or cap context.
+
+## Representation: workhorse + showcase
+
+- **Workhorse** — strict two-bucket fold, primitive int components: the trit *routes* an
+  activation to `pos`, `neg`, or nowhere (`drop = K`), value = `pos − neg` at the end. No
+  negation or multiplication primitive anywhere. This is what M1–M3 run.
+- **Showcase** — the same row×activation reified as renderable data (the trit sequence as
+  combinator terms `I` / `C P` / `K`), evaluable to the identical number. Built only on small
+  slices. Keep the op reified (don't fuse it away) so an **iota-tree** rendering of the whole
+  net ("here is the LLM") stays derivable later — aspirational, not built now.
 
 ## Open / deferred
 

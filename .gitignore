@@ -5,3 +5,7 @@
 __pycache__/
 *.pyc
 .venv/
+
+# Build outputs
+/bin/
+*.comb
