@@ -8,7 +8,9 @@
 module Tokenizer
   ( Tokenizer
   , loadTokenizer
+  , Role(..)
   , encodeChat
+  , encodeChatMessages
   , decode
   ) where
 
@@ -138,11 +140,29 @@ bpe t =
 encodeText :: Tokenizer -> String -> [Int]
 encodeText _ = concatMap (bpe . toByteLevel) . pretokenize
 
--- | Encode a user message with the BitNet chat template:
--- @User: {msg}<|eot_id|>Assistant: @ (the eot special token is id 128009).
+-- | A chat role. Rendered capitalized in the template ("User"/"Assistant"/"System").
+data Role = System | User | Assistant
+  deriving (Eq, Show)
+
+roleStr :: Role -> String
+roleStr System    = "System"
+roleStr User      = "User"
+roleStr Assistant = "Assistant"
+
+trim :: String -> String
+trim = f . f where f = reverse . dropWhile isSpace
+
+-- | Encode a conversation with the BitNet chat template: each message becomes
+-- @{Role}: {trimmed content}<|eot_id|>@ (eot = id 128009), then @Assistant: @
+-- prompts the next turn.
+encodeChatMessages :: Tokenizer -> [(Role, String)] -> [Int]
+encodeChatMessages tok msgs =
+  concatMap one msgs ++ encodeText tok "Assistant: "
+  where one (r, c) = encodeText tok (roleStr r ++ ": " ++ trim c) ++ [128009]
+
+-- | Encode a single user message (the common one-turn case).
 encodeChat :: Tokenizer -> String -> [Int]
-encodeChat _ msg =
-  encodeText Tokenizer ("User: " ++ msg) ++ [128009] ++ encodeText Tokenizer "Assistant: "
+encodeChat tok msg = encodeChatMessages tok [(User, msg)]
 
 -- | Decode token ids to bytes (the UTF-8 text), via the C decode table.
 decode :: Tokenizer -> [Int] -> [Word8]

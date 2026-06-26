@@ -20,7 +20,7 @@ KERNEL  = -tunix_omp -Icbits cbits/bndot.c
 all: fast plain
 
 # Fast path (import Dot -> link the bndot kernel).
-fast: m1 m2 m3 m4 testkinds
+fast: m1 m2 m3 m4 chat testkinds
 # No fast path.
 plain: m0 testtok showcase
 
@@ -29,6 +29,7 @@ m1:        ; $(MHS) $(KERNEL) M1        -obin/m1
 m2:        ; $(MHS) $(KERNEL) M2        -obin/m2
 m3:        ; $(MHS) $(KERNEL) M3        -obin/m3
 m4:        ; $(MHS) $(KERNEL) cbits/tokparse.c M4 -obin/m4
+chat:      ; $(MHS) $(KERNEL) cbits/tokparse.c Chat -obin/chat
 testkinds: ; $(MHS) $(KERNEL) TestKinds -obin/testkinds
 m0:        ; $(MHS) M0 -obin/m0
 testtok:   ; $(MHS) -Icbits cbits/tokparse.c TestTok -obin/testtok
