@@ -49,6 +49,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   token-for-token. The cache (`decoderStep` in `src/Model.hs`, all in Haskell) processes the
   prompt once then runs only the new token each step, reusing stored keys/values — ~45 s/token
   vs ~3 min growing without it.
+- **Combinator showcase** (`src/Showcase.hs`): renders a BitLinear dot as the combinators each
+  trit generates — +1 = `I`, 0 = `K`, -1 = `C P` (negate via a difference pair `P x 0`). Includes
+  a tiny SKI/`C`/`B`/`P` reducer that *evaluates* the generated term and confirms it equals
+  `dotTrits`, plus iota-tree encodings (`i = \f. f S K`; `I = i i`, `K = i(i(i i))`). Runs on a
+  real q_proj row to show the combinators a BitNet weight row generates.
 - **Haskell tokenizer** (`src/Tokenizer.hs`): byte-level BPE encode + decode, no Python. The
   GPT-2 byte↔unicode table is computed; tokenizer.json is parsed (UTF-8) for vocab + merges into
   sorted `Mhs.Array` lookups (no `Data.Map`). Encode = hand-written Llama 3 pre-tokenizer +
