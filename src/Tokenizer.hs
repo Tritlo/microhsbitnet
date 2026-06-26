@@ -1,11 +1,10 @@
--- | A byte-level BPE tokenizer (Llama 3 style) in Haskell — no Python for
--- tokenization. Encode (text -> ids) and decode (ids -> text).
---
--- Each non-special token is a string over the GPT-2 "byte-level" alphabet (256
--- codepoints, computed below — not data). tokenizer.json stores those strings as
--- raw UTF-8, so the file is UTF-8 decoded before parsing. No Data.Map in MicroHs,
--- so vocab/merge lookups are sorted arrays + binary search (merges built lazily —
--- with ignore_merges, whole pre-tokens that are in the vocab skip BPE entirely).
+-- | A byte-level BPE tokenizer (Llama 3 style) — no Python. Encode (text -> ids)
+-- and decode (ids -> text). The pre-tokenizer, byte-level mapping and BPE merge
+-- loop are Haskell; the heavy lifting of parsing tokenizer.json (16 MB) and the
+-- vocab/merge/decode tables is done once in C (`cbits/tokparse.c`), which this
+-- module calls for the three table operations: vocab lookup, merge-rank lookup,
+-- and id->bytes decode. Lookup keys are the canonical UTF-8 of a byte-level
+-- string (`packUTF8`), exactly what the C tables are keyed by.
 module Tokenizer
   ( Tokenizer
   , loadTokenizer
@@ -13,105 +12,50 @@ module Tokenizer
   , decode
   ) where
 
-import Data.Char (isSpace, isDigit, isAlpha, ord, chr)
-import Data.List (sortBy)
+import Data.Char (isSpace, isDigit, isAlpha, chr)
 import Data.Word (Word8)
 import qualified Data.ByteString as BS
-import Data.ByteString.Internal (packUTF8, primBSfromUTF8)
-import System.IO (openBinaryFile, hClose, IOMode(ReadMode), Handle)
-import Mhs.Array (Array, listArray, accumArray, (!))
+import Data.ByteString.Internal (packUTF8)
+import Data.ByteString.Unsafe (unsafeUseAsCStringLen)
+import Foreign.C.String (CString)
+import Foreign.Marshal.Alloc (allocaBytes)
+import Foreign.Ptr (Ptr)
+import Foreign.Storable (peekElemOff)
+import System.IO.Unsafe (unsafePerformIO)
+import System.IO (openBinaryFile, hClose, IOMode(ReadMode))
 
--- ---------- byte-level alphabet (computed) ----------
+foreign import ccall "tokparse.h bntok_load"
+  c_tok_load :: CString -> Int -> IO Int
+foreign import ccall "tokparse.h bntok_vlookup"
+  c_vlookup :: CString -> Int -> IO Int
+foreign import ccall "tokparse.h bntok_mlookup"
+  c_mlookup :: CString -> Int -> CString -> Int -> IO Int
+foreign import ccall "tokparse.h bntok_decode"
+  c_decode :: Int -> Ptr Word8 -> Int -> IO Int
+
+-- ---------- byte-level alphabet (computed; byte -> codepoint) ----------
 
 nonPrintable :: [Int]
 nonPrintable = [0 .. 32] ++ [127 .. 160] ++ [173]
-
-levelToByte :: Int -> Int
-levelToByte cp | cp < 256  = cp
-               | otherwise = nonPrintable !! (cp - 256)
 
 byteToLevel :: Int -> Int
 byteToLevel b | (b >= 33 && b <= 126) || (b >= 161 && b <= 172) || (b >= 174) = b
               | otherwise = 256 + length (takeWhile (/= b) nonPrintable)
 
--- UTF-8 encode/decode now come from MicroHs (Data.ByteString.Internal): the file
--- is decoded with 'primBSfromUTF8' and a pre-token is UTF-8 encoded with 'packUTF8'.
+-- ---------- C-backed table lookups (tables are immutable after load) ----------
 
--- ---------- JSON-ish scanning ----------
+vlookup :: String -> Maybe Int
+vlookup s = unsafePerformIO $
+  unsafeUseAsCStringLen (packUTF8 s) $ \ (p, n) -> do
+    i <- c_vlookup p n
+    return (if i < 0 then Nothing else Just i)
 
-hex4 :: Char -> Char -> Char -> Char -> Int
-hex4 a b c d = ((hd a * 16 + hd b) * 16 + hd c) * 16 + hd d
-  where hd x | isDigit x = ord x - ord '0'
-             | x >= 'a'  = ord x - ord 'a' + 10
-             | otherwise = ord x - ord 'A' + 10
-
--- Parse a JSON string body (after opening quote) into codepoints; rest after the
--- closing quote.
-parseJStr :: String -> ([Int], String)
-parseJStr = go []
-  where
-    go acc ('\\' : 'u' : a : b : c : d : r) = go (hex4 a b c d : acc) r
-    go acc ('\\' : 'n' : r) = go (10 : acc) r
-    go acc ('\\' : 'r' : r) = go (13 : acc) r
-    go acc ('\\' : 't' : r) = go (9 : acc) r
-    go acc ('\\' : x : r)   = go (ord x : acc) r
-    go acc ('"' : r)        = (reverse acc, r)
-    go acc (x : r)          = go (ord x : acc) r
-    go acc []               = (reverse acc, [])
-
-afterPat :: String -> String -> String
-afterPat pat = go
-  where
-    n = length pat
-    go [] = []
-    go s | take n s == pat = drop n s
-    go (_ : r) = go r
-
-parseObjEntries :: String -> [(Int, [Int])]
-parseObjEntries s =
-  case dropWhile isSpace s of
-    ('"' : r) -> let (cps, r1) = parseJStr r
-                     r2 = dropWhile isSpace (drop 1 (dropWhile (/= ':') r1))
-                     (ds, r3) = span isDigit r2
-                     r4 = dropWhile (\c -> c == ',' || isSpace c) r3
-                 in (read ds, cps) : parseObjEntries r4
-    _         -> []
-
-parseAdded :: String -> [(Int, [Int])]
-parseAdded s = case afterPat "\"id\":" s of
-  "" -> []
-  r  -> let (ds, r1) = span isDigit (dropWhile isSpace r)
-            r2 = dropWhile isSpace (afterPat "\"content\":" r1)
-        in case r2 of
-             ('"' : r3) -> let (cps, r4) = parseJStr r3 in (read ds, cps) : parseAdded r4
-             _          -> []
-
--- Parse the merges array body into (left, right) byte-level strings (rank = order).
-parseMerges :: String -> [(String, String)]
-parseMerges s = case dropWhile (\c -> isSpace c || c == ',') s of
-  ('"' : r) -> let (cps, r1) = parseJStr r
-                   str = map chr cps
-                   (a, b) = breakSpace str
-               in (a, b) : parseMerges r1
-  _         -> []
-  where breakSpace t = let (a, rest) = break (== ' ') t in (a, drop 1 rest)
-
--- ---------- sorted-array lookup (no Data.Map) ----------
-
-mkLookup :: Ord k => [(k, v)] -> (k -> Maybe v)
-mkLookup kvs =
-  let sorted = sortBy (\(a, _) (b, _) -> compare a b) kvs
-      n      = length sorted
-      arr    = listArray (0, n - 1) sorted
-      search lo hi k
-        | lo >= hi  = Nothing
-        | otherwise = let m = (lo + hi) `div` 2
-                          (km, vm) = arr ! m
-                      in case compare k km of
-                           EQ -> Just vm
-                           LT -> search lo m k
-                           GT -> search (m + 1) hi k
-  in \k -> search 0 n k
+mlookup :: (String, String) -> Maybe Int
+mlookup (a, b) = unsafePerformIO $
+  unsafeUseAsCStringLen (packUTF8 a) $ \ (pa, na) ->
+  unsafeUseAsCStringLen (packUTF8 b) $ \ (pb, nb) -> do
+    r <- c_mlookup pa na pb nb
+    return (if r < 0 then Nothing else Just r)
 
 -- ---------- pre-tokenizer (Llama 3 regex, ASCII) ----------
 
@@ -143,12 +87,9 @@ pretokenize s  = let (tok, rest) = one s in tok : pretokenize rest
 
 -- ---------- the tokenizer ----------
 
--- | byte->bytes decode table, vocab lookup (byte-level string -> id), and a lazy
--- merges lookup (pair -> rank).
+-- | A marker: the vocab/merge/decode tables live in C (one set per process), so
+-- 'loadTokenizer' must run before any encode/decode.
 data Tokenizer = Tokenizer
-  (Array Int [Word8])
-  (String -> Maybe Int)
-  ((String, String) -> Maybe Int)
 
 readFileBS :: FilePath -> IO BS.ByteString
 readFileBS path = do
@@ -163,22 +104,12 @@ readFileBS path = do
       c <- BS.hGet h chunkSz
       if BS.length c == 0 then return acc else go h (BS.append acc c)
 
--- | Parse tokenizer.json once into a 'Tokenizer'.
+-- | Read tokenizer.json and parse it (in C) into the vocab/merge/decode tables.
 loadTokenizer :: String -> IO Tokenizer
 loadTokenizer path = do
   bs <- readFileBS path
-  let s          = primBSfromUTF8 bs
-      vocabBody  = drop 1 (dropWhile (/= '{') (afterPat "\"vocab\":" s))
-      addedBody  = takeWhile (/= ']') (afterPat "\"added_tokens\":" s)
-      mergesBody = takeWhile (/= ']') (afterPat "\"merges\":" s)
-      vocab      = parseObjEntries vocabBody                       -- [(id, codepoints)]
-      added      = parseAdded addedBody
-      decTbl     = accumArray (\_ x -> x) [] (0, 128255)
-                     ([ (i, map (fromIntegral . levelToByte) cps) | (i, cps) <- vocab ]
-                      ++ [ (i, map fromIntegral cps) | (i, cps) <- added ])
-      vlookup    = mkLookup [ (map chr cps, i) | (i, cps) <- vocab ]
-      mlookup    = mkLookup (zip (parseMerges mergesBody) [0 ..])  -- lazy: only forced if BPE runs
-  return (Tokenizer decTbl vlookup mlookup)
+  _  <- unsafeUseAsCStringLen bs $ \ (p, n) -> c_tok_load p n
+  return Tokenizer
 
 -- byte-level encode one pre-token to its byte-level string: its UTF-8 bytes
 -- (via 'packUTF8') mapped through the GPT-2 byte->codepoint alphabet.
@@ -187,11 +118,11 @@ toByteLevel s = map (chr . byteToLevel . fromIntegral) (BS.unpack (packUTF8 s))
 
 -- BPE one pre-token (byte-level string) to ids. ignore_merges: a whole pre-token
 -- in the vocab is emitted directly; otherwise merge by rank.
-bpe :: (String -> Maybe Int) -> ((String, String) -> Maybe Int) -> String -> [Int]
-bpe vlookup mlookup t =
+bpe :: String -> [Int]
+bpe t =
   case vlookup t of
     Just i  -> [i]
-    Nothing -> map (\sym -> maybe 0 id (vlookup sym)) (loop (map (: []) t))
+    Nothing -> map (\ sym -> maybe 0 id (vlookup sym)) (loop (map (: []) t))
   where
     loop syms =
       let ranked = [ (r, i) | (i, (a, b)) <- zip [0 ..] (zip syms (drop 1 syms))
@@ -205,15 +136,18 @@ bpe vlookup mlookup t =
 
 -- Encode raw text (no special tokens) to ids.
 encodeText :: Tokenizer -> String -> [Int]
-encodeText (Tokenizer _ vlookup mlookup) =
-  concatMap (bpe vlookup mlookup . toByteLevel) . pretokenize
+encodeText _ = concatMap (bpe . toByteLevel) . pretokenize
 
 -- | Encode a user message with the BitNet chat template:
 -- @User: {msg}<|eot_id|>Assistant: @ (the eot special token is id 128009).
 encodeChat :: Tokenizer -> String -> [Int]
-encodeChat tok msg =
-  encodeText tok ("User: " ++ msg) ++ [128009] ++ encodeText tok "Assistant: "
+encodeChat _ msg =
+  encodeText Tokenizer ("User: " ++ msg) ++ [128009] ++ encodeText Tokenizer "Assistant: "
 
--- | Decode token ids to bytes (the UTF-8 text).
+-- | Decode token ids to bytes (the UTF-8 text), via the C decode table.
 decode :: Tokenizer -> [Int] -> [Word8]
-decode (Tokenizer tbl _ _) = concatMap (tbl !)
+decode _ = concatMap decId
+  where
+    decId i = unsafePerformIO $ allocaBytes 512 $ \ p -> do
+      n <- c_decode i (p :: Ptr Word8) 512
+      mapM (peekElemOff p) [0 .. min n 512 - 1]

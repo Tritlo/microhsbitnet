@@ -100,3 +100,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Each kernel is cross-checked against its Haskell twin in `TestKinds` (rmsnorm/bitlinear/add/sqrelu
   bit-identical, rope ~1e-7). M1/M2/M3 keep the Haskell batch path, so the oracle checks are
   untouched; M4 generates the identical text.
+- **Tokenizer load in C** (27 s → 0.04 s, ~680×): once the math was fast, the tokenizer parse was
+  the whole startup. `cbits/tokparse.c` scans tokenizer.json once and builds the vocab/merge/decode
+  tables (sorted for binary search) in C, replacing the Haskell parse that turned the 16 MB file into
+  a 16-million-char `String` and `sortBy`'d ~400 K entries in the combinator runtime. `Tokenizer.hs`
+  keeps the pre-tokenizer, byte-level mapping and BPE merge loop in Haskell and calls C only for the
+  three table ops — vocab lookup, merge-rank lookup, id→bytes decode (keys are the canonical UTF-8 of
+  a byte-level string, matching the C tables, so results are identical). `encodeChat "Hello!"` still
+  gives the exact Python ids and decode round-trips. Full M4 (encode → 30-layer generation → decode)
+  is now **0:15** — down from 6:10 at the start of the performance work (~25×).

@@ -22,13 +22,14 @@ fast: m1 m2 m3 m4 testkinds
 # No fast path.
 plain: m0 testtok showcase
 
+# The tokenizer parser (cbits/tokparse.c) is linked by the tokenizer users (M4, TestTok).
 m1:        ; $(MHS) $(KERNEL) M1        -obin/m1
 m2:        ; $(MHS) $(KERNEL) M2        -obin/m2
 m3:        ; $(MHS) $(KERNEL) M3        -obin/m3
-m4:        ; $(MHS) $(KERNEL) M4        -obin/m4
+m4:        ; $(MHS) $(KERNEL) cbits/tokparse.c M4 -obin/m4
 testkinds: ; $(MHS) $(KERNEL) TestKinds -obin/testkinds
-m0:        ; $(MHS) M0       -obin/m0
-testtok:   ; $(MHS) TestTok  -obin/testtok
+m0:        ; $(MHS) M0 -obin/m0
+testtok:   ; $(MHS) -Icbits cbits/tokparse.c TestTok -obin/testtok
 showcase:  ; $(MHS) Showcase -obin/showcase
 
 clean: ; rm -f bin/m0 bin/m1 bin/m2 bin/m3 bin/m4 bin/testkinds bin/testtok bin/showcase
