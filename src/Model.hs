@@ -12,6 +12,8 @@ module Model
   , embedRow
   , Layer(..)
   , decoderLayer
+  , KVCache
+  , decoderStep
   , cHidden, cHeads, cKV, cHeadDim, cTheta, cEps
   ) where
 
@@ -136,3 +138,51 @@ decoderLayer ly xs =
                        (map (applyLin (lUp ly)) hn2)
       d      = map (applyLin (lDown ly) . rmsNorm (lFfnSubNorm ly)) gated
   in zipWith (zipWith (+)) xs1 d
+
+-- | A layer's KV cache: the RoPE'd keys and the values for every position seen so
+-- far (each vector length cKV * cHeadDim).
+type KVCache = ([[Float]], [[Float]])
+
+-- Plain dot product (attention scores are tiny — the int8 BitLinears are the work).
+dotF :: [Float] -> [Float] -> Float
+dotF a b = sum (zipWith (*) a b)
+
+-- Apply RoPE to every head of a packed multi-head vector at position @pos@.
+ropeAll :: Int -> Int -> [Float] -> [Float]
+ropeAll nHeads pos vec = concat [ applyRope pos (sliceHead vec h) | h <- [0 .. nHeads - 1] ]
+
+-- | Attention for a single new query against the cached keys/values: per query
+-- head, softmax over the dot with each cached key (causal is implicit — the cache
+-- only holds positions <= now), then the weighted sum of cached values.
+attendStep :: [Float] -> [[Float]] -> [[Float]] -> [Float]
+attendStep q cK cV =
+  let nGroups = cHeads `div` cKV
+      scale   = 1.0 / sqrt (fromIntegral cHeadDim)
+      headOut h =
+        let kv     = h `div` nGroups
+            qh     = sliceHead q h
+            scores = [ dotF qh (sliceHead k kv) * scale | k <- cK ]
+            sm     = softmax scores
+            vs     = [ sliceHead v kv | v <- cV ]
+        in foldr1 (zipWith (+)) (zipWith (\w vv -> map (w *) vv) sm vs)
+  in concat [ headOut h | h <- [0 .. cHeads - 1] ]
+
+-- | One decoder layer for a single new token at position @pos@, given the layer's
+-- KV cache. Returns the new hidden and the cache with this token's key/value
+-- appended. Same computation as 'decoderLayer' but for one position with cached
+-- attention — the BitLinears still go through the 'bndot' primitive.
+decoderStep :: Int -> Layer -> KVCache -> [Float] -> ([Float], KVCache)
+decoderStep pos ly (cK, cV) x =
+  let hn    = rmsNorm (lInputNorm ly) x
+      q     = ropeAll cHeads pos (applyLin (lQ ly) hn)
+      kNew  = ropeAll cKV pos (applyLin (lK ly) hn)
+      vNew  = applyLin (lV ly) hn
+      cK'   = cK ++ [kNew]
+      cV'   = cV ++ [vNew]
+      attn  = attendStep q cK' cV'
+      o     = applyLin (lO ly) (rmsNorm (lAttnSubNorm ly) attn)
+      x1    = zipWith (+) x o
+      hn2   = rmsNorm (lPostNorm ly) x1
+      gated = zipWith (\g u -> relu2 g * u) (applyLin (lGate ly) hn2) (applyLin (lUp ly) hn2)
+      d     = applyLin (lDown ly) (rmsNorm (lFfnSubNorm ly) gated)
+  in (zipWith (+) x1 d, (cK', cV'))

@@ -7,6 +7,8 @@ module Forward
   , buildLayers
   , finalHidden
   , argmaxLogits
+  , emptyCaches
+  , stepLayers
   , cVocab
   ) where
 
@@ -75,6 +77,26 @@ finalHidden layers normW embedB ids =
   let xs0 = map (embedRow embedB) ids
       fh  = foldl' (\xs l -> forceSeq (decoderLayer l xs)) xs0 layers
   in rmsNorm normW (last fh)
+
+-- | Empty KV caches for @n@ layers.
+emptyCaches :: Int -> [KVCache]
+emptyCaches n = replicate n ([], [])
+
+forceVec :: [Float] -> ()
+forceVec []       = ()
+forceVec (x : xs) = x `seq` forceVec xs
+
+-- | Thread one new token (at position @pos@) through all layers with a KV cache,
+-- returning its final hidden and the updated caches. Each layer's hidden is forced
+-- (which also forces the new cache entry, used in this step's attention) to keep
+-- generation's memory flat.
+stepLayers :: [Layer] -> Int -> [KVCache] -> [Float] -> ([Float], [KVCache])
+stepLayers layers pos caches x0 = go layers caches x0 []
+  where
+    go (l : ls) (c : cs) h acc =
+      let (h', c') = decoderStep pos l c h
+      in forceVec h' `seq` go ls cs h' (c' : acc)
+    go _ _ h acc = (h, reverse acc)
 
 -- | The argmax token over the tied LM head for a final hidden vector, with its
 -- logit. Streams over the vocab so the logits list need not persist.
