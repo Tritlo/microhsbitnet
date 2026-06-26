@@ -3,6 +3,7 @@
 -- No KV cache — each call reprocesses the whole sequence (fine for short demos).
 module Forward
   ( look
+  , mkLin
   , mkNorm
   , buildLayers
   , finalHidden

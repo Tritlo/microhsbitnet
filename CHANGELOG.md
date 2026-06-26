@@ -61,3 +61,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   "Hello!"` → the exact Python ids, and decode round-trips. M4 now takes a prompt *string* and
   prints generated *text* — the whole pipeline (tokenize → model → generate → detokenize) is pure
   MicroHaskell. `test/toktool.py` remains only as the cross-check oracle.
+- **Review & simplify pass** (reconciled with a Codex review): removed dead code from
+  `BitLinear.hs` (`dotRow`/`bitLinear`/`bitLinearFast`/`showcaseRow`, superseded by the `bndot`
+  primitive — `Trit`/`dotTrits`/`rowTrits` stay as the spec the showcase exercises); deduped
+  `mkLin`/`mkNorm`/`look` (M2 now imports them from `Forward`); made the KV cache O(1) per token
+  (prepend not `++`, attention is order-independent); fused `rmsNorm` into one strict pass and
+  precomputed RoPE inverse frequencies; fixed an M4 off-by-one (could emit `nGen+1` tokens) and a
+  `utf8enc` 4-byte gap. All outputs unchanged (M2 oracle, M3 token 11, tokenizer round-trip).

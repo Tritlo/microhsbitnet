@@ -47,29 +47,36 @@ applyLin (Lin p inD outD sc) x =
   let (xqBS, ascale) = quantizeActBS x
   in bitLinearPrim p inD outD sc xqBS ascale
 
--- | RMSNorm in float32: @weight * x / sqrt(mean(x^2) + eps)@.
+-- | RMSNorm in float32: @weight * x / sqrt(mean(x^2) + eps)@. Count and
+-- sum-of-squares are taken in a single strict pass.
 rmsNorm :: [Float] -> [Float] -> [Float]
 rmsNorm weight x =
-  let n  = fromIntegral (length x)
-      ss = sum (map (\v -> v * v) x)
-      s  = 1.0 / sqrt (ss / n + cEps)
+  let go cnt acc []       = (cnt, acc)
+      go cnt acc (v : vs) = let a = acc + v * v; c = cnt + 1 in a `seq` c `seq` go c a vs
+      (n, ss) = go (0 :: Int) 0.0 x
+      s       = 1.0 / sqrt (ss / fromIntegral n + cEps)
   in zipWith (\w v -> w * (v * s)) weight x
 
 -- | Squared ReLU: @max(0, g)^2@.
 relu2 :: Float -> Float
 relu2 g = let r = if g > 0.0 then g else 0.0 in r * r
 
+-- The RoPE inverse frequencies, inv_freq[k] = theta^(-2k/headDim). Independent of
+-- position and head, so computed once (avoids the per-element exponentiation).
+invFreq :: [Float]
+invFreq = [ cTheta ** (negate (2.0 * fromIntegral k) / fromIntegral cHeadDim)
+          | k <- [0 .. cHeadDim `div` 2 - 1] ]
+
 -- | Apply rotary position embedding to one head vector (length 'cHeadDim') at
--- position @pos@. inv_freq[k] = theta^(-2k/headDim); rotate_half = [-x2, x1].
+-- position @pos@. rotate_half = [-x2, x1]; cos/sin are bound once per pair.
 applyRope :: Int -> [Float] -> [Float]
 applyRope pos hv =
   let half = cHeadDim `div` 2
       h1   = take half hv
       h2   = drop half hv
-      ang k = fromIntegral pos
-              * (cTheta ** (negate (2.0 * fromIntegral k) / fromIntegral cHeadDim))
-      rot  = [ let a = ang k in (x1 * cos a - x2 * sin a, x2 * cos a + x1 * sin a)
-             | (k, x1, x2) <- zip3 [0 ..] h1 h2 ]
+      rot  = [ let a = fromIntegral pos * f; c = cos a; s = sin a
+               in (x1 * c - x2 * s, x2 * c + x1 * s)
+             | (f, x1, x2) <- zip3 invFreq h1 h2 ]
   in map fst rot ++ map snd rot
 
 softmax :: [Float] -> [Float]
@@ -177,8 +184,8 @@ decoderStep pos ly (cK, cV) x =
       q     = ropeAll cHeads pos (applyLin (lQ ly) hn)
       kNew  = ropeAll cKV pos (applyLin (lK ly) hn)
       vNew  = applyLin (lV ly) hn
-      cK'   = cK ++ [kNew]
-      cV'   = cV ++ [vNew]
+      cK'   = kNew : cK   -- prepend (O(1)); attention sums over all positions, so
+      cV'   = vNew : cV   -- order doesn't matter and position is baked in via RoPE
       attn  = attendStep q cK' cV'
       o     = applyLin (lO ly) (rmsNorm (lAttnSubNorm ly) attn)
       x1    = zipWith (+) x o

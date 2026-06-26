@@ -53,7 +53,9 @@ utf8enc :: Int -> [Int]
 utf8enc c
   | c < 0x80    = [c]
   | c < 0x800   = [0xC0 + c `div` 64, 0x80 + c `mod` 64]
-  | otherwise   = [0xE0 + c `div` 4096, 0x80 + (c `div` 64) `mod` 64, 0x80 + c `mod` 64]
+  | c < 0x10000 = [0xE0 + c `div` 4096, 0x80 + (c `div` 64) `mod` 64, 0x80 + c `mod` 64]
+  | otherwise   = [ 0xF0 + c `div` 262144, 0x80 + (c `div` 4096) `mod` 64
+                  , 0x80 + (c `div` 64) `mod` 64, 0x80 + c `mod` 64 ]
 
 -- ---------- JSON-ish scanning ----------
 

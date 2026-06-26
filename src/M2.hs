@@ -3,35 +3,15 @@
 -- first and last position, for comparison with test/oracle_m2.py.
 module M2(main) where
 
-import qualified Data.ByteString as BS
-import Safetensors (Tensor(..), lookupTensor, bf16At)
 import Loader (loadModel, slice)
 import Model
+import Forward (look, mkLin, mkNorm)
 
 modelPath :: String
 modelPath = "models/bitnet-b1.58-2B-4T/model.safetensors"
 
 ids :: [Int]
 ids = [128000, 791, 6864]
-
-look :: [Tensor] -> String -> Tensor
-look ts name = case lookupTensor name ts of
-  Just t  -> t
-  Nothing -> error ("missing tensor: " ++ name)
-
-mkLin :: [Tensor] -> BS.ByteString -> String -> Lin
-mkLin ts dat name =
-  let wt = look ts (name ++ ".weight")
-      st = look ts (name ++ ".weight_scale")
-      [packedRows, inD] = tShape wt
-  in Lin (slice dat wt) inD (packedRows * 4) (bf16At (slice dat st) 0)
-
-mkNorm :: [Tensor] -> BS.ByteString -> String -> [Float]
-mkNorm ts dat name =
-  let t = look ts name
-      d = head (tShape t)
-      b = slice dat t
-  in [ bf16At b (2 * c) | c <- [0 .. d - 1] ]
 
 l2 :: [Float] -> Float
 l2 v = sqrt (sum (map (\x -> x * x) v))

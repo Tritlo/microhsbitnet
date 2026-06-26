@@ -47,7 +47,7 @@ main = do
   let loop caches pos lastH k = do
         let (t, _) = argmaxLogits embedB (rmsNorm normW lastH)
         putStr (show t ++ " "); hFlush stdout
-        if t `elem` eosIds || k <= 0
+        if t `elem` eosIds || k <= 1   -- stop after exactly nGen generated tokens
           then return [t]
           else do
             let (h, caches') = stepLayers layers pos caches (embedRow embedB t)

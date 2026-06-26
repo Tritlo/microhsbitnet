@@ -11,15 +11,10 @@ module BitLinear
   , toTrit
   , rowTrits
   , dotTrits
-  , dotRow
   , quantizeAct
-  , bitLinear
-  , bitLinearFast
-  , showcaseRow
   ) where
 
 import qualified Data.ByteString as BS
-import Data.Bits (shiftR, (.&.))
 import Safetensors (tritAt)
 
 -- | A ternary weight, reified as the operation it performs on an activation.
@@ -64,42 +59,3 @@ clampInt :: Int -> Int -> Int -> Int
 clampInt lo hi v | v < lo    = lo
                  | v > hi    = hi
                  | otherwise = v
-
--- | Workhorse dot for logical row @r@: fold directly over the row's contiguous
--- packed bytes (@packed[j*inDim ..]@, j = r mod chunk), extracting 2-bit field
--- i = r div chunk, and walking the int8 activations in lockstep. Same result as
--- @dotTrits (rowTrits ...) xq@ but with no intermediate @[Trit]@ allocation.
--- @chunk@ is outDim\/4. Field value t encodes trit t-1: 0=neg, 1=drop, 2=pos.
-dotRow :: BS.ByteString -> Int -> Int -> Int -> [Int] -> Int
-dotRow packed inDim chunk r xq =
-  let sh   = 2 * (r `div` chunk)
-      base = (r `mod` chunk) * inDim
-      go p n c (x : xs) =
-        let t = fromIntegral ((BS.index packed (base + c) `shiftR` sh) .&. 3) :: Int
-        in if t == 0 then let n' = n + x in n' `seq` go p n' (c + 1) xs
-           else if t == 2 then let p' = p + x in p' `seq` go p' n (c + 1) xs
-           else go p n (c + 1) xs
-      go p n _ [] = p - n
-  in go 0 0 0 xq
-
--- | A full BitLinear forward: int8 activations @xq@ (with scale @ascale@) through
--- a packed weight of logical shape [outDim, inDim] with per-tensor @wscale@.
--- Each output is @dotTrits(row, xq) * wscale / ascale@. Rows are unpacked and
--- folded one at a time (strict, transient) so memory stays flat.
-bitLinear :: BS.ByteString -> Int -> Int -> Float -> [Int] -> Float -> [Float]
-bitLinear packed inDim outDim wscale xq ascale =
-  [ fromIntegral (dotTrits (rowTrits packed inDim outDim r) xq) * wscale / ascale
-  | r <- [0 .. outDim - 1] ]
-
--- | Same as 'bitLinear' but using the 'dotRow' workhorse (no @[Trit]@ allocation).
-bitLinearFast :: BS.ByteString -> Int -> Int -> Float -> [Int] -> Float -> [Float]
-bitLinearFast packed inDim outDim wscale xq ascale =
-  let chunk = outDim `div` 4
-  in [ fromIntegral (dotRow packed inDim chunk r xq) * wscale / ascale
-     | r <- [0 .. outDim - 1] ]
-
--- | Showcase view of one row: the contributing operations paired with the
--- activations they act on (drops removed). Evaluating @sum of Pos - Neg@ over
--- this list reproduces 'dotTrits'. For rendering small slices.
-showcaseRow :: [Trit] -> [Int] -> [(Trit, Int)]
-showcaseRow ts xs = [ tx | tx@(t, _) <- zip ts xs, t /= Zero ]
