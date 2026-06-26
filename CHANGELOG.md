@@ -18,3 +18,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ~2 s and is verified bit-identical to a numpy oracle (`test/oracle_m0.py`) on bf16 values,
   scales, and trits (incl. a strided row). Documents MicroHs IO gotchas (`gmhs`, broken
   `BS.empty`/`concat`/`readFile`, no `hSeek`/`hFileSize`).
+- **M1 — list-op BitLinear** (`src/BitLinear.hs`, `src/Loader.hs`, `src/M1.hs`): int8 activation
+  quant (per-token absmax), the two-bucket trit fold (`+1`→pos, `-1`→neg, `0`→drop, value
+  `pos−neg` — no negate/multiply in the matmul), and rescale. A real layer-0 q_proj forward
+  matches a numpy oracle (`test/oracle_m1.py`) bit-exactly on the integer dots (incl. full-matrix
+  sum) and to Float precision on outputs. Loader factored into `Loader.hs`. Measured ~23 s per
+  2560×2560 BitLinear in the combinator runtime (perf for the C→B gate).
