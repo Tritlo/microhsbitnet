@@ -14,18 +14,28 @@ module Dot
   ) where
 
 import qualified Data.ByteString as BS
+import Data.Float (doubleToFloat)
 import Foreign.Marshal.Alloc (mallocBytes, free)
 import Foreign.Ptr (Ptr, castPtr)
 import Foreign.Storable (pokeElemOff)
 import System.IO.Unsafe (unsafePerformIO)
 import BitLinear (quantizeAct)
 
--- | @bnDot kind weights acts shift len@ — the dot in C, returned as a Float.
---   kind 0 = ternary × int8: @weights@ pack 4 trits/byte, @shift@ (0,2,4,6)
---     selects the field; @acts@ are int8. Result = sum_c (trit_c) * a_c.
---   kind 1 = bf16 × float32: @weights@ are dense bf16, @shift@ ignored; @acts@ are
---     float32. Result = sum_c bf16(weights[2c..]) * a_c.
-bnDot :: Int -> BS.ByteString -> BS.ByteString -> Int -> Int -> Float
+-- | @bnDot kind weights acts shift len@ — a general quantized dot in C, returned
+-- as a Double (accumulator headroom). Quantization scales\/zero-points are applied
+-- by the caller (per tensor\/group). @shift@ selects the 2-bit field for kind 0
+-- (BitNet's packed-ternary layout); ignored otherwise. Kinds (weight × activation):
+--
+--   * 0 — W1.58 ternary {-1,0,1} (4\/byte) × int8   [BitNet b1.58]
+--   * 1 — bf16 × float32
+--   * 2 — float32 × float32
+--   * 3 — int8 × int8   [W8A8]
+--   * 4 — int8 × float32   [weight-only int8]
+--   * 5 — int4 (signed, 2\/byte) × int8   [W4A8]
+--   * 6 — int4 × float32   [GPTQ\/AWQ-style]
+--   * 7 — fp16 × float32
+--   * 8 — fp8 E4M3 × float32
+bnDot :: Int -> BS.ByteString -> BS.ByteString -> Int -> Int -> Double
 bnDot = _primitive "bndot"
 
 -- | Quantize activations to int8 and pack them as a ByteString (two's complement,
@@ -53,17 +63,18 @@ bitLinearPrim :: BS.ByteString -> Int -> Int -> Float -> BS.ByteString -> Float 
 bitLinearPrim packed inDim outDim wscale xqBS ascale =
   let chunk = outDim `div` 4
       row j = BS.take inDim (BS.drop (j * inDim) packed)
-  in [ bnDot 0 (row (r `mod` chunk)) xqBS (2 * (r `div` chunk)) inDim * wscale / ascale
+  in [ doubleToFloat (bnDot 0 (row (r `mod` chunk)) xqBS (2 * (r `div` chunk)) inDim)
+         * wscale / ascale
      | r <- [0 .. outDim - 1] ]
 
 -- | Dense float32 dot of two equal-length float32 byte vectors (kind 2). Used
 -- for attention q·k scores and any full-precision dot.
 floatDot :: BS.ByteString -> BS.ByteString -> Int -> Float
-floatDot w a len = bnDot 2 w a 0 len
+floatDot w a len = doubleToFloat (bnDot 2 w a 0 len)
 
 -- | LM-head logit for token @v@ via kind-1 bndot: the float32 hidden vector
 -- @hF32@ dotted with the bf16 embedding row v. @embedB@ is the full embed_tokens
 -- bytes, @hidden@ the model width.
 lmLogit :: BS.ByteString -> BS.ByteString -> Int -> Int -> Float
 lmLogit embedB hF32 hidden v =
-  bnDot 1 (BS.take (hidden * 2) (BS.drop (v * hidden * 2) embedB)) hF32 0 hidden
+  doubleToFloat (bnDot 1 (BS.take (hidden * 2) (BS.drop (v * hidden * 2) embedB)) hF32 0 hidden)
