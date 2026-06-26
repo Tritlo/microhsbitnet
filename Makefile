@@ -10,7 +10,9 @@
 GMHS   ?= $(HOME)/Code/MicroHs/bin/gmhs
 MHSDIR := $(CURDIR)/vendor/microhs
 MHS     = MHSDIR=$(MHSDIR) $(GMHS) -isrc
-KERNEL  = -Icbits cbits/bndot.c
+# Fast modules build with the -t unix_omp target (-march=native -fopenmp) and link
+# the kernel; run with BNDOT_THREADS=N to override the 12-thread default.
+KERNEL  = -tunix_omp -Icbits cbits/bndot.c
 
 .PHONY: all fast plain clean
 all: fast plain

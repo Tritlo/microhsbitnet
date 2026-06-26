@@ -6,7 +6,7 @@ module M3(main) where
 
 import Loader (loadModel, slice)
 import Model (cHidden)
-import Dot (lmLogit, packF32)
+import Dot (lmLogit)
 import Forward (look, mkNorm, buildLayers, finalHidden, argmaxLogits)
 
 modelPath :: String
@@ -25,11 +25,10 @@ main = do
       normW  = mkNorm ts dat "model.norm.weight"
       layers = buildLayers ts dat 30
       hLast  = finalHidden layers normW embedB ids
-      hF32   = packF32 hLast
   putStrLn ("seq=" ++ show (length ids) ++ " ids=" ++ show ids)
   putStrLn ("final hidden (last pos) [0..4]: " ++ show (take 5 hLast))
   putStrLn ("final hidden L2: " ++ show (l2 hLast))
   putStrLn ("logits at [0,100,1000,50000,128000]: "
-             ++ show [ lmLogit embedB hF32 cHidden v | v <- [0, 100, 1000, 50000, 128000] ])
+             ++ show [ lmLogit embedB hLast cHidden v | v <- [0, 100, 1000, 50000, 128000] ])
   let (bi, bv) = argmaxLogits embedB hLast
   putStrLn ("argmax token: " ++ show bi ++ "  logit: " ++ show bv)

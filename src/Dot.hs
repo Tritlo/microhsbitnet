@@ -1,58 +1,102 @@
 -- | Weighted dots via the C kernel in @cbits/bndot.c@, called with plain
 -- @foreign import ccall@ — no MicroHs runtime patch, no custom primitive. The
--- inner loops run in C instead of as per-element combinator graph reduction.
--- BitNet needs exactly three, so there are three dedicated kernels (not one
--- general dispatch): ternary BitLinears, the bf16 LM head, and float32 attention.
+-- loops run in C (vectorized + OpenMP-parallel) instead of as per-element
+-- combinator graph reduction, and they are /batched/: one FFI call does a whole
+-- BitLinear matmul or a whole LM-head argmax, not one dot per call.
 --
 -- The list-op 'BitLinear.dotTrits' stays the readable spec for the ternary case.
 module Dot
-  ( ternaryDot
-  , bf16Dot
+  ( matmulTernary
+  , argmaxBf16
+  , lmLogit
   , f32Dot
+  , floatDot
+  , bitLinearPrim
   , quantizeActBS
   , packF32
-  , bitLinearPrim
-  , lmLogit
-  , floatDot
+  , unpackF32
+  , bnRmsNorm
+  , bnBitLinearF
+  , bnRope
+  , bnAttend
+  , bnSqReluMul
+  , bnAdd
   ) where
 
 import qualified Data.ByteString as BS
 import Data.ByteString.Unsafe (unsafeUseAsCStringLen)
 import Data.Float (doubleToFloat)
 import Foreign.C.String (CString)
-import Foreign.Marshal.Alloc (mallocBytes, free)
+import Foreign.Marshal.Alloc (mallocBytes, free, allocaBytes, alloca)
+import Foreign.Marshal.Utils (copyBytes)
 import Foreign.Ptr (Ptr, castPtr)
-import Foreign.Storable (pokeElemOff)
+import Foreign.Storable (peek, peekElemOff, pokeElemOff)
 import System.IO.Unsafe (unsafePerformIO)
 import BitLinear (quantizeAct)
 
-foreign import ccall "bndot.h bndot_ternary"
-  c_ternary :: CString -> CString -> Int -> Int -> IO Double
-foreign import ccall "bndot.h bndot_bf16"
-  c_bf16 :: CString -> CString -> Int -> IO Double
+foreign import ccall "bndot.h bnmatmul_ternary"
+  c_matmul_ternary :: CString -> CString -> Int -> Int -> Ptr Double -> IO ()
+foreign import ccall "bndot.h bnargmax_bf16"
+  c_argmax_bf16 :: CString -> CString -> Int -> Int -> Ptr Double -> IO Int
 foreign import ccall "bndot.h bndot_f32"
   c_f32 :: CString -> CString -> Int -> IO Double
+foreign import ccall "bndot.h bnrmsnorm"
+  c_rmsnorm :: CString -> CString -> Int -> Float -> Ptr Float -> IO ()
+foreign import ccall "bndot.h bnbitlinear"
+  c_bitlinear :: CString -> Float -> CString -> Int -> Int -> Ptr Float -> IO ()
+foreign import ccall "bndot.h bnrope"
+  c_rope :: Ptr Float -> Int -> Int -> Int -> Float -> IO ()
+foreign import ccall "bndot.h bnattend"
+  c_attend :: CString -> CString -> CString -> Int -> Int -> Int -> Int -> Float -> Ptr Float -> IO ()
+foreign import ccall "bndot.h bnsqrelu_mul"
+  c_sqrelu_mul :: CString -> CString -> Int -> Ptr Float -> IO ()
+foreign import ccall "bndot.h bnadd"
+  c_add :: CString -> CString -> Int -> Ptr Float -> IO ()
 
--- Hand two immutable bytestrings to C as raw pointers (no copy). The dots are pure
--- in their inputs, so 'unsafePerformIO' is fine; the call runs in @IO@ inside
--- 'unsafeUseAsCStringLen' so the pointers stay live while C reads them.
-withTwo :: BS.ByteString -> BS.ByteString -> (CString -> CString -> IO Double) -> Double
-withTwo w a f = unsafePerformIO $
-  unsafeUseAsCStringLen w $ \ (wp, _) ->
-  unsafeUseAsCStringLen a $ \ (ap, _) -> f wp ap
+-- | A whole W1.58 BitLinear matmul: @outDim@ raw integer dots (as Double) of the
+-- packed ternary weight against the int8 activations @xqBS@. One FFI call; the
+-- result buffer is read back before it is freed.
+matmulTernary :: BS.ByteString -> BS.ByteString -> Int -> Int -> [Double]
+matmulTernary packed xqBS inDim outDim = unsafePerformIO $
+  unsafeUseAsCStringLen packed $ \ (wp, _) ->
+  unsafeUseAsCStringLen xqBS   $ \ (ap, _) ->
+  allocaBytes (outDim * 8)     $ \ out -> do
+    c_matmul_ternary wp ap inDim outDim out
+    mapM (peekElemOff out) [0 .. outDim - 1]
 
--- | W1.58 ternary weights (4\/byte; @shift@ ∈ {0,2,4,6} picks the 2-bit field) ·
--- int8 activations, over @n@ elements. Raw dot — scales are the caller's job.
-ternaryDot :: BS.ByteString -> BS.ByteString -> Int -> Int -> Double
-ternaryDot w a shift n = withTwo w a (\ wp ap -> c_ternary wp ap n shift)
+-- | The tied LM head's argmax: scans the whole @vocab@ of the bf16 @embedB@ rows
+-- dotted with the f32 @hidden@ vector, returning @(argmax token, logit)@.
+argmaxBf16 :: BS.ByteString -> [Float] -> Int -> Int -> (Int, Float)
+argmaxBf16 embedB hidden hiddenDim vocab = unsafePerformIO $
+  let hbs = packF32 hidden in
+  unsafeUseAsCStringLen embedB $ \ (ep, _) ->
+  unsafeUseAsCStringLen hbs    $ \ (hp, _) ->
+  alloca                       $ \ best -> do
+    bi <- c_argmax_bf16 ep hp hiddenDim vocab best
+    bv <- peek best
+    return (bi, doubleToFloat bv)
 
--- | bf16 weights · float32 activations, over @n@ elements.
-bf16Dot :: BS.ByteString -> BS.ByteString -> Int -> Double
-bf16Dot w a n = withTwo w a (\ wp ap -> c_bf16 wp ap n)
+-- | A single LM-head logit for token @v@ (a diagnostic): the bf16 embedding row
+-- @v@ · the f32 @hidden@. Reuses 'argmaxBf16' over the one-row slice at @v@.
+lmLogit :: BS.ByteString -> [Float] -> Int -> Int -> Float
+lmLogit embedB hidden hiddenDim v =
+  snd (argmaxBf16 (BS.drop (v * hiddenDim * 2) embedB) hidden hiddenDim 1)
 
--- | float32 weights · float32 activations, over @n@ elements.
+-- | One float32 · float32 dot of two equal-length float32 byte vectors.
 f32Dot :: BS.ByteString -> BS.ByteString -> Int -> Double
-f32Dot w a n = withTwo w a (\ wp ap -> c_f32 wp ap n)
+f32Dot w a n = unsafePerformIO $
+  unsafeUseAsCStringLen w $ \ (wp, _) ->
+  unsafeUseAsCStringLen a $ \ (ap, _) -> c_f32 wp ap n
+
+-- | Float32 dot for attention q·k scores (and any full-precision dot).
+floatDot :: BS.ByteString -> BS.ByteString -> Int -> Float
+floatDot w a len = doubleToFloat (f32Dot w a len)
+
+-- | BitLinear forward: the whole ternary matmul in one C call, then rescale each
+-- output by @wscale \/ ascale@ (kept in Haskell so the result is unchanged).
+bitLinearPrim :: BS.ByteString -> Int -> Int -> Float -> BS.ByteString -> Float -> [Float]
+bitLinearPrim packed inDim outDim wscale xqBS ascale =
+  [ doubleToFloat d * wscale / ascale | d <- matmulTernary packed xqBS inDim outDim ]
 
 -- | Quantize activations to int8 and pack them as a ByteString (two's complement,
 -- read by the kernel as @int8_t@), with the scale. For the ternary activations.
@@ -74,23 +118,61 @@ packF32 xs = unsafePerformIO $ do
   free p
   return bs
 
--- | BitLinear forward via the ternary dot: one C dot per output row, then rescale.
-bitLinearPrim :: BS.ByteString -> Int -> Int -> Float -> BS.ByteString -> Float -> [Float]
-bitLinearPrim packed inDim outDim wscale xqBS ascale =
-  let chunk = outDim `div` 4
-      row j = BS.take inDim (BS.drop (j * inDim) packed)
-  in [ doubleToFloat (ternaryDot (row (r `mod` chunk)) xqBS (2 * (r `div` chunk)) inDim)
-         * wscale / ascale
-     | r <- [0 .. outDim - 1] ]
+-- | Read a float32 byte buffer back to a Float list.
+unpackF32 :: BS.ByteString -> [Float]
+unpackF32 bs = unsafePerformIO $
+  unsafeUseAsCStringLen bs $ \ (p, len) ->
+    mapM (peekElemOff (castPtr p :: Ptr Float)) [0 .. len `div` 4 - 1]
 
--- | Dense float32 dot of two equal-length float32 byte vectors. Used for
--- attention q·k scores and any full-precision dot.
-floatDot :: BS.ByteString -> BS.ByteString -> Int -> Float
-floatDot w a len = doubleToFloat (f32Dot w a len)
+-- Run a C kernel that writes @n@ float32 results into a fresh buffer, returning
+-- the buffer as a ByteString. The buffer is on the stack (no malloc churn) and
+-- 'packCStringLen' copies it out before it is freed.
+withOut :: Int -> (Ptr Float -> IO ()) -> BS.ByteString
+withOut n act = unsafePerformIO $ allocaBytes (n * 4) $ \ p -> do
+  act p
+  BS.packCStringLen (castPtr p, n * 4)
 
--- | LM-head logit for token @v@ via the bf16 dot: the float32 hidden vector
--- @hF32@ dotted with the bf16 embedding row v. @embedB@ is the full embed_tokens
--- bytes, @hidden@ the model width.
-lmLogit :: BS.ByteString -> BS.ByteString -> Int -> Int -> Float
-lmLogit embedB hF32 hidden v =
-  doubleToFloat (bf16Dot (BS.take (hidden * 2) (BS.drop (v * hidden * 2) embedB)) hF32 hidden)
+-- The per-token vector math of the generation path, on float32 byte buffers.
+
+-- | RMSNorm: @w * x / sqrt(mean(x^2) + eps)@ over @n@ floats.
+bnRmsNorm :: BS.ByteString -> BS.ByteString -> Int -> Float -> BS.ByteString
+bnRmsNorm w x n eps = withOut n $ \ out ->
+  unsafeUseAsCStringLen w $ \ (wp, _) ->
+  unsafeUseAsCStringLen x $ \ (xp, _) -> c_rmsnorm wp xp n eps out
+
+-- | Fused BitLinear on f32 activations: absmax-quantize to int8, ternary matmul,
+-- rescale by @wscale@. @packed@ is the row-major packed ternary weight.
+bnBitLinearF :: BS.ByteString -> Float -> BS.ByteString -> Int -> Int -> BS.ByteString
+bnBitLinearF packed wscale x inDim outDim = withOut outDim $ \ out ->
+  unsafeUseAsCStringLen packed $ \ (pp, _) ->
+  unsafeUseAsCStringLen x      $ \ (xp, _) -> c_bitlinear pp wscale xp inDim outDim out
+
+-- | Rotary position embedding at @pos@ on each of @nHeads@ heads of @headDim@.
+bnRope :: BS.ByteString -> Int -> Int -> Int -> Float -> BS.ByteString
+bnRope vec pos nHeads headDim theta = unsafePerformIO $
+  let n = BS.length vec `div` 4 in
+  allocaBytes (n * 4) $ \ p -> do
+    unsafeUseAsCStringLen vec $ \ (vp, len) -> copyBytes (castPtr p) vp len
+    c_rope p pos nHeads headDim theta
+    BS.packCStringLen (castPtr p, n * 4)
+
+-- | GQA causal attention of query @q@ against @nPos@ cached keys @cK@ / values
+-- @cV@. Returns the @nHeads*headDim@ attention output.
+bnAttend :: BS.ByteString -> BS.ByteString -> BS.ByteString
+         -> Int -> Int -> Int -> Int -> Float -> BS.ByteString
+bnAttend q cK cV nPos nHeads nKV headDim scale = withOut (nHeads * headDim) $ \ out ->
+  unsafeUseAsCStringLen q  $ \ (qp, _) ->
+  unsafeUseAsCStringLen cK $ \ (kp, _) ->
+  unsafeUseAsCStringLen cV $ \ (vp, _) -> c_attend qp kp vp nPos nHeads nKV headDim scale out
+
+-- | Squared-ReLU gated MLP elementwise: @max(0,g)^2 * u@ over @n@ floats.
+bnSqReluMul :: BS.ByteString -> BS.ByteString -> Int -> BS.ByteString
+bnSqReluMul g u n = withOut n $ \ out ->
+  unsafeUseAsCStringLen g $ \ (gp, _) ->
+  unsafeUseAsCStringLen u $ \ (up, _) -> c_sqrelu_mul gp up n out
+
+-- | Residual add of two @n@-float buffers.
+bnAdd :: BS.ByteString -> BS.ByteString -> Int -> BS.ByteString
+bnAdd a b n = withOut n $ \ out ->
+  unsafeUseAsCStringLen a $ \ (ap, _) ->
+  unsafeUseAsCStringLen b $ \ (bp, _) -> c_add ap bp n out

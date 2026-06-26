@@ -10,6 +10,9 @@ module Forward
   , argmaxLogits
   , emptyCaches
   , stepLayers
+  , buildLayersC
+  , emptyCachesC
+  , stepLayersC
   , cVocab
   ) where
 
@@ -18,7 +21,7 @@ import Data.List (foldl')
 import Safetensors (Tensor(..), lookupTensor, bf16At)
 import Loader (slice)
 import Model
-import Dot (lmLogit, packF32)
+import Dot (argmaxBf16, packF32)
 
 cVocab :: Int
 cVocab = 128256
@@ -62,6 +65,28 @@ buildLayer ts dat i =
 buildLayers :: [Tensor] -> BS.ByteString -> Int -> [Layer]
 buildLayers ts dat n = [ buildLayer ts dat i | i <- [0 .. n - 1] ]
 
+-- A C-path layer: same weights, but the RMSNorm weights are float32 byte buffers.
+buildLayerC :: [Tensor] -> BS.ByteString -> Int -> LayerC
+buildLayerC ts dat i =
+  let p        = "model.layers." ++ show i ++ "."
+      normBS n = packF32 (mkNorm ts dat (p ++ n))
+  in LayerC
+       (normBS "input_layernorm.weight")
+       (mkLin ts dat (p ++ "self_attn.q_proj"))
+       (mkLin ts dat (p ++ "self_attn.k_proj"))
+       (mkLin ts dat (p ++ "self_attn.v_proj"))
+       (normBS "self_attn.attn_sub_norm.weight")
+       (mkLin ts dat (p ++ "self_attn.o_proj"))
+       (normBS "post_attention_layernorm.weight")
+       (mkLin ts dat (p ++ "mlp.gate_proj"))
+       (mkLin ts dat (p ++ "mlp.up_proj"))
+       (normBS "mlp.ffn_sub_norm.weight")
+       (mkLin ts dat (p ++ "mlp.down_proj"))
+
+-- | Build all @n@ decoder layers for the C generation path.
+buildLayersC :: [Tensor] -> BS.ByteString -> Int -> [LayerC]
+buildLayersC ts dat n = [ buildLayerC ts dat i | i <- [0 .. n - 1] ]
+
 -- Deeply force a sequence of vectors so the layer fold can't build a giant thunk.
 forceSeq :: [[Float]] -> [[Float]]
 forceSeq xss = outer xss `seq` xss
@@ -99,13 +124,21 @@ stepLayers layers pos caches x0 = go layers caches x0 []
       in forceVec h' `seq` go ls cs h' (c' : acc)
     go _ _ h acc = (h, reverse acc)
 
+-- | Empty C-path KV caches for @n@ layers (seeded by the first token).
+emptyCachesC :: Int -> [KVC]
+emptyCachesC n = replicate n Nothing
+
+-- | Thread one new token (at @pos@) through all layers on float32 byte buffers
+-- via the C kernels. Each layer's output buffer is forced to keep memory flat.
+stepLayersC :: [LayerC] -> Int -> [KVC] -> BS.ByteString -> (BS.ByteString, [KVC])
+stepLayersC layers pos caches x0 = go layers caches x0 []
+  where
+    go (l : ls) (c : cs) h acc =
+      let (h', c') = decoderStepC l pos c h
+      in BS.length h' `seq` go ls cs h' (c' : acc)
+    go _ _ h acc = (h, reverse acc)
+
 -- | The argmax token over the tied LM head for a final hidden vector, with its
--- logit. Streams over the vocab so the logits list need not persist.
+-- logit. The whole vocab scan runs in the C kernel (one FFI call).
 argmaxLogits :: BS.ByteString -> [Float] -> (Int, Float)
-argmaxLogits embedB hLast =
-  let hF32 = packF32 hLast
-      go bi bv v
-        | v >= cVocab = (bi, bv)
-        | otherwise   = let l = lmLogit embedB hF32 cHidden v
-                        in if l > bv then go v l (v + 1) else go bi bv (v + 1)
-  in go 0 (-1.0 / 0.0) 0
+argmaxLogits embedB hLast = argmaxBf16 embedB hLast cHidden cVocab

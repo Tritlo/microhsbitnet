@@ -6,8 +6,9 @@ import System.IO (hFlush, stdout)
 import Data.List (foldl')
 import qualified Data.ByteString as BS
 import Loader (loadModel, slice)
-import Model (rmsNorm, embedRow)
-import Forward (look, mkNorm, buildLayers, argmaxLogits, emptyCaches, stepLayers)
+import Model (embedRow, cHidden, cEps)
+import Forward (look, mkNorm, buildLayersC, argmaxLogits, emptyCachesC, stepLayersC)
+import Dot (packF32, unpackF32, bnRmsNorm)
 import Tokenizer (loadTokenizer, encodeChat, decode)
 
 modelPath :: String
@@ -30,27 +31,30 @@ main = do
   (ts, dat) <- loadModel modelPath
   tok <- loadTokenizer tokPath
   let embedB = slice dat (look ts "model.embed_tokens.weight")
-      normW  = mkNorm ts dat "model.norm.weight"
-      layers = buildLayers ts dat 30
+      normWB = packF32 (mkNorm ts dat "model.norm.weight")
+      layers = buildLayersC ts dat 30
       prompt = encodeChat tok promptText
   putStrLn ("prompt: " ++ promptText)
   putStrLn ("prompt ids: " ++ unwords (map show prompt))
 
-  -- Prefill the prompt into the KV caches; keep the last position's hidden.
-  let prefill (caches, _) (pos, t) =
-        let (h, caches') = stepLayers layers pos caches (embedRow embedB t)
+  -- Prefill the prompt into the KV caches; keep the last position's hidden (a
+  -- float32 byte buffer). The fold's initial hidden is a placeholder, overwritten
+  -- by the first token.
+  let embedBS t = packF32 (embedRow embedB t)
+      prefill (caches, _) (pos, t) =
+        let (h, caches') = stepLayersC layers pos caches (embedBS t)
         in (caches', h)
-      (caches0, lastH0) = foldl' prefill (emptyCaches (length layers), []) (zip [0 ..] prompt)
+      (caches0, lastH0) = foldl' prefill (emptyCachesC (length layers), packF32 [0.0]) (zip [0 ..] prompt)
       pos0 = length prompt
 
-  -- Greedy generation with the cache: predict, then step the chosen token.
+  -- Greedy generation with the cache: final-norm + argmax in C, then step the token.
   let loop caches pos lastH k = do
-        let (t, _) = argmaxLogits embedB (rmsNorm normW lastH)
+        let (t, _) = argmaxLogits embedB (unpackF32 (bnRmsNorm normWB lastH cHidden cEps))
         putStr (show t ++ " "); hFlush stdout
         if t `elem` eosIds || k <= 1   -- stop after exactly nGen generated tokens
           then return [t]
           else do
-            let (h, caches') = stepLayers layers pos caches (embedRow embedB t)
+            let (h, caches') = stepLayersC layers pos caches (embedBS t)
             rest <- loop caches' (pos + 1) h (k - 1)
             return (t : rest)
   putStr "generated ids: "

@@ -84,3 +84,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   only for a general upstream PR, now abandoned. The tokenizer drops its hand-rolled UTF-8 codecs for
   MicroHs's `packUTF8`/`primBSfromUTF8`. All outputs identical (M2 oracle, M3 token 11, M4 text,
   `TestKinds`).
+- **Kernel performance: batch, vectorize, thread, and move the per-token math into C** — generation
+  6:10 → **0:37** (~10×), bit-identical text. Three stages:
+  1. *Batched dots* — one FFI call does a whole BitLinear matmul (`bnmatmul_ternary`) or the whole
+     128 K-vocab LM-head argmax (`bnargmax_bf16`), instead of one call per row/token (~800 K → ~210
+     FFI crossings per token).
+  2. *SIMD + threads* — the ternary inner loop is AVX2 (the `sign_epi8` trick; bit-exact, it's
+     integer), and the matmul/argmax/attention loops are OpenMP-parallel via a new `-tunix_omp`
+     build target (`-march=native -fopenmp`). Thread count is `BNDOT_THREADS` (default 12).
+  3. *Per-token math in C* — the M4 decoder step runs entirely on float32 byte buffers through
+     `bnrmsnorm`, `bnbitlinear` (fused absmax-quantize + ternary matmul + rescale), `bnrope`,
+     `bnattend`, `bnsqrelu_mul`, `bnadd`, so RMSNorm/RoPE/attention/MLP/residuals leave the
+     combinator runtime (`src/Model.hs` `decoderStepC`, `src/Forward.hs` `stepLayersC`, threading
+     `ByteString` buffers). This was the big win (batched 4:49 → C-math 0:37).
+  Each kernel is cross-checked against its Haskell twin in `TestKinds` (rmsnorm/bitlinear/add/sqrelu
+  bit-identical, rope ~1e-7). M1/M2/M3 keep the Haskell batch path, so the oracle checks are
+  untouched; M4 generates the identical text.

@@ -53,13 +53,23 @@ forward + LM head (M3) ~55 min → ~25 s**, argmax matching HF (token 11). Per-l
 oracle-exact (M2 ~1e-5); the ~0.6% drift on M3's final hidden is float-order accumulation over
 30 layers re-quantized to int8, within the ~1e-2 target.
 
-**Build** — pass the kernel and its header dir on the gmhs line. MicroHs is vendored at
-`vendor/microhs/` (clean upstream, pinned) and supplies the lib + runtime; the kernel links in
-like any `.c` argument:
+**Going faster** — the dot kernels are *batched* (one call does a whole matmul `bnmatmul_ternary` /
+the whole 128 K-vocab argmax `bnargmax_bf16`), the ternary loop is *AVX2*-vectorized (bit-exact —
+integer), and the heavy loops are *OpenMP*-parallel (`BNDOT_THREADS`, default 12). Once the dots
+were free, the per-token vector math (RMSNorm/RoPE/attention/MLP/residuals) was the floor, so the
+**generation path (M4) runs that math in C too** on float32 byte buffers (`bnrmsnorm`, `bnbitlinear`
+fused quant+matmul+rescale, `bnrope`, `bnattend`, `bnsqrelu_mul`, `bnadd`; `decoderStepC` /
+`stepLayersC`). Generation: 6:10 → **0:37** (~10×), bit-identical text. M1/M2/M3 keep the Haskell
+batch path (oracles untouched).
 
-    MHSDIR=$PWD/vendor/microhs ~/Code/MicroHs/bin/gmhs -isrc -Icbits <Module> cbits/bndot.c -obin/<out>
+**Build** — use the `Makefile` (it picks the `-tunix_omp` target = `-march=native -fopenmp`, and
+links the kernel). MicroHs is vendored at `vendor/microhs/` (clean upstream + that one build target)
+and supplies the lib + runtime; the kernel links in like any `.c` argument:
 
-(Modules without the fast path — M0, TestTok, Showcase — drop `-Icbits cbits/bndot.c`.)
+    MHSDIR=$PWD/vendor/microhs ~/Code/MicroHs/bin/gmhs -isrc -tunix_omp -Icbits <Module> cbits/bndot.c -obin/<out>
+
+(Modules without the fast path — M0, TestTok, Showcase — drop `-tunix_omp -Icbits cbits/bndot.c`.)
+Run with `BNDOT_THREADS=N` to override the 12-thread default.
 
 ## MicroHs IO constraints (verified)
 

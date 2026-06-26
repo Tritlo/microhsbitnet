@@ -14,12 +14,17 @@ module Model
   , decoderLayer
   , KVCache
   , decoderStep
+  , LayerC(..)
+  , KVC
+  , applyLinC
+  , decoderStepC
   , cHidden, cHeads, cKV, cHeadDim, cTheta, cEps
   ) where
 
 import qualified Data.ByteString as BS
 import Safetensors (bf16At)
-import Dot (quantizeActBS, bitLinearPrim, packF32, floatDot)
+import Dot (quantizeActBS, bitLinearPrim, packF32, floatDot,
+            bnRmsNorm, bnRope, bnAttend, bnAdd, bnSqReluMul, bnBitLinearF)
 
 -- Model dimensions (BitNet b1.58 2B4T).
 cHidden, cHeads, cKV, cHeadDim :: Int
@@ -193,3 +198,51 @@ decoderStep pos ly (cK, cV) x =
       gated = zipWith (\g u -> relu2 g * u) (applyLin (lGate ly) hn2) (applyLin (lUp ly) hn2)
       d     = applyLin (lDown ly) (rmsNorm (lFfnSubNorm ly) gated)
   in (zipWith (+) x1 d, (cK', cV'))
+
+-- ---------- C-kernel generation path (all per-token math in C) ----------
+
+-- | A decoder layer for the C path: the four RMSNorm weights are float32 byte
+-- buffers (decoded once at build time); the BitLinears stay packed 'Lin's.
+data LayerC = LayerC
+  { cInputNorm   :: BS.ByteString
+  , cQ, cK, cV   :: Lin
+  , cAttnSubNorm :: BS.ByteString
+  , cO           :: Lin
+  , cPostNorm    :: BS.ByteString
+  , cGate, cUp   :: Lin
+  , cFfnSubNorm  :: BS.ByteString
+  , cDown        :: Lin
+  }
+
+-- | One layer's KV cache for the C path: the RoPE'd keys and the values for all
+-- positions so far, each a contiguous float32 buffer. 'Nothing' before any token
+-- (MicroHs has no usable empty ByteString), so the first key/value seeds it.
+type KVC = Maybe (BS.ByteString, BS.ByteString)
+
+-- | Apply a BitLinear to a float32 activation buffer, in C (fused quantize +
+-- ternary matmul + rescale). Returns the float32 output buffer.
+applyLinC :: Lin -> BS.ByteString -> BS.ByteString
+applyLinC (Lin p inD outD sc) x = bnBitLinearF p sc x inD outD
+
+-- | One decoder layer for a single new token at position @pos@, entirely on
+-- float32 byte buffers through the C kernels (same computation as 'decoderStep').
+decoderStepC :: LayerC -> Int -> KVC -> BS.ByteString -> (BS.ByteString, KVC)
+decoderStepC ly pos mc x =
+  let hn    = bnRmsNorm (cInputNorm ly) x cHidden cEps
+      q     = bnRope (applyLinC (cQ ly) hn) pos cHeads cHeadDim cTheta
+      k     = bnRope (applyLinC (cK ly) hn) pos cKV cHeadDim cTheta
+      v     = applyLinC (cV ly) hn
+      (cK', cV') = case mc of
+        Nothing        -> (k, v)
+        Just (ck, cv)  -> (ck `BS.append` k, cv `BS.append` v)
+      nPos  = pos + 1
+      scale = 1.0 / sqrt (fromIntegral cHeadDim)
+      attn  = bnAttend q cK' cV' nPos cHeads cKV cHeadDim scale
+      o     = applyLinC (cO ly) (bnRmsNorm (cAttnSubNorm ly) attn cHidden cEps)
+      x1    = bnAdd x o cHidden
+      hn2   = bnRmsNorm (cPostNorm ly) x1 cHidden cEps
+      ffn   = linOut (cGate ly)
+      gm    = bnSqReluMul (applyLinC (cGate ly) hn2) (applyLinC (cUp ly) hn2) ffn
+      d     = applyLinC (cDown ly) (bnRmsNorm (cFfnSubNorm ly) gm ffn cEps)
+      x2    = bnAdd x1 d cHidden
+  in (x2, Just (cK', cV'))
