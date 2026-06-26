@@ -10,7 +10,7 @@
 -- Run it to see the combinators a real BitNet weight row generates.
 module Showcase(main) where
 
-import BitLinear (Trit(..), toTrit, dotTrits, rowTrits)
+import BitLinear (Trit(..), toTrit, dotTrits, dotRow, rowTrits)
 import Safetensors (Tensor(..), lookupTensor)
 import Loader (loadModel, slice)
 
@@ -114,16 +114,21 @@ showOp Pos  = "+1  id      I"
 showOp Zero = " 0  drop    K"
 showOp Neg  = "-1  negate  C P"
 
-demoRow :: String -> [Trit] -> [Int] -> IO ()
-demoRow title ts xs = do
+-- @mRow@, when present, is the same dot computed by 'dotRow' walking the raw
+-- packed weight bytes (only the real BitNet row has a packed buffer to walk).
+demoRow :: String -> [Trit] -> [Int] -> Maybe Int -> IO ()
+demoRow title ts xs mRow = do
   putStrLn ("=== " ++ title ++ " ===")
   putStrLn ("trits:        " ++ show (map tritInt ts))
   putStrLn ("activations:  " ++ show xs)
   putStrLn "each weight is a list operation -> a combinator:"
   mapM_ (\t -> putStrLn ("    " ++ showOp t)) ts
   putStrLn ("combinators:  " ++ unwords (map (pretty . tritComb) ts))
-  putStrLn ("dot (dotTrits):     " ++ show (dotTrits ts xs))
-  putStrLn ("dot (reduce combs): " ++ show (dotByComb ts xs))
+  putStrLn ("dot (dotTrits spec):    " ++ show (dotTrits ts xs))
+  putStrLn ("dot (reduce combs):     " ++ show (dotByComb ts xs))
+  case mRow of
+    Just d  -> putStrLn ("dot (dotRow over bytes):" ++ " " ++ show d)
+    Nothing -> return ()
   putStrLn ""
 
 tritInt :: Trit -> Int
@@ -149,9 +154,9 @@ main = do
   putStrLn "  in combinators:  -1 = C P,  0 = K,  +1 = I   (number x = pair P x 0)"
   putStrLn ""
 
-  -- tiny pedagogical example
+  -- tiny pedagogical example (no packed weight bytes, so no dotRow line)
   demoRow "tiny example  [5,7,3] x [-1,0,+1]"
-          [Neg, Zero, Pos] [5, 7, 3]
+          [Neg, Zero, Pos] [5, 7, 3] Nothing
 
   -- the negate operation rendered as an iota tree
   putStrLn "=== the operations as iota trees (i = lambda f. f S K) ==="
@@ -170,6 +175,10 @@ main = do
       let packed = slice dat wt
           [packedRows, inDim] = tShape wt
           outDim = packedRows * 4
+          chunk  = outDim `div` 4
           trits6 = take 6 (rowTrits packed inDim outDim 0)   -- first 6 weights of row 0
           acts6  = [114, -40, 35, 109, -72, 2]               -- the M1 int8 activations
-      demoRow "real BitNet q_proj row 0 (first 6 weights)" trits6 acts6
+          -- dotRow walks length(acts6) columns of row 0 straight off the packed
+          -- bytes -- the production list-op path, here over the same 6 weights.
+          byBytes = dotRow packed inDim chunk 0 acts6
+      demoRow "real BitNet q_proj row 0 (first 6 weights)" trits6 acts6 (Just byBytes)

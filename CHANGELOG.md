@@ -62,8 +62,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   prints generated *text* — the whole pipeline (tokenize → model → generate → detokenize) is pure
   MicroHaskell. `test/toktool.py` remains only as the cross-check oracle.
 - **Review & simplify pass** (reconciled with a Codex review): removed dead code from
-  `BitLinear.hs` (`dotRow`/`bitLinear`/`bitLinearFast`/`showcaseRow`, superseded by the `bndot`
-  primitive — `Trit`/`dotTrits`/`rowTrits` stay as the spec the showcase exercises); deduped
+  `BitLinear.hs` (`bitLinear`/`bitLinearFast`/`showcaseRow`, superseded by the `bndot`
+  primitive — `Trit`/`dotTrits`/`rowTrits`/`dotRow` stay: the first three are the spec, and
+  `dotRow` (the byte-level list-op workhorse) is now a live path the showcase checks the
+  combinator rendering against — the spec, the reduced combinators, and `dotRow` over the raw
+  packed bytes all agree on a real q_proj row); deduped
   `mkLin`/`mkNorm`/`look` (M2 now imports them from `Forward`); made the KV cache O(1) per token
   (prepend not `++`, attention is order-independent); fused `rmsNorm` into one strict pass and
   precomputed RoPE inverse frequencies; fixed an M4 off-by-one (could emit `nGen+1` tokens) and a

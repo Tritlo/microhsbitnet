@@ -11,10 +11,12 @@ module BitLinear
   , toTrit
   , rowTrits
   , dotTrits
+  , dotRow
   , quantizeAct
   ) where
 
 import qualified Data.ByteString as BS
+import Data.Bits (shiftR, (.&.))
 import Safetensors (tritAt)
 
 -- | A ternary weight, reified as the operation it performs on an activation.
@@ -43,6 +45,24 @@ dotTrits = go 0 0
     go p n (Neg  : ts) (x : xs) = let n' = n + x in n' `seq` go p n' ts xs
     go p n (Zero : ts) (_ : xs) = go p n ts xs
     go p n _           _        = p - n
+
+-- | Workhorse dot for logical row @r@: fold directly over the row's contiguous
+-- packed bytes (@packed[j*inDim ..]@, j = r mod chunk), extracting 2-bit field
+-- i = r div chunk, and walking the int8 activations in lockstep. Same result as
+-- @dotTrits (rowTrits ...) xq@ but with no intermediate @[Trit]@ allocation.
+-- @chunk@ is outDim\/4. Field value t encodes trit t-1: 0=neg, 1=drop, 2=pos.
+-- This is the byte-level list-op the combinator showcase checks itself against.
+dotRow :: BS.ByteString -> Int -> Int -> Int -> [Int] -> Int
+dotRow packed inDim chunk r xq =
+  let sh   = 2 * (r `div` chunk)
+      base = (r `mod` chunk) * inDim
+      go p n c (x : xs) =
+        let t = fromIntegral ((BS.index packed (base + c) `shiftR` sh) .&. 3) :: Int
+        in if t == 0 then let n' = n + x in n' `seq` go p n' (c + 1) xs
+           else if t == 2 then let p' = p + x in p' `seq` go p' n (c + 1) xs
+           else go p n (c + 1) xs
+      go p n _ [] = p - n
+  in go 0 0 0 xq
 
 -- | Per-token int8 activation quantization (absmax): @scale = 127 / max|x|@
 -- (clamped at 1e-5), @x_q = round(x * scale)@ clamped to [-128, 127]. Returns the
