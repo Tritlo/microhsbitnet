@@ -7,7 +7,7 @@ module M1(main) where
 import qualified Data.ByteString as BS
 import Safetensors (Tensor(..), lookupTensor, bf16At)
 import Loader (loadModel, slice)
-import BitLinear (dotRow, quantizeAct)
+import BitLinear (bitLinearFast, quantizeAct)
 
 modelPath :: String
 modelPath = "models/bitnet-b1.58-2B-4T/model.safetensors"
@@ -29,15 +29,12 @@ main = do
           wscale = bf16At (slice dat st) 0
           x = mkInput inDim
           (xq, ascale) = quantizeAct x
-          chunk = outDim `div` 4
-          idots = [ dotRow packed inDim chunk r xq | r <- [0 .. outDim - 1] ]
-          ys    = map (\d -> fromIntegral d * wscale / ascale) idots
+          ys    = bitLinearFast packed inDim outDim wscale xq ascale
       putStrLn ("inDim=" ++ show inDim ++ " outDim=" ++ show outDim)
       putStrLn ("wscale=" ++ show wscale)
       putStrLn ("ascale=" ++ show ascale)
       putStrLn ("xq[0..15]=" ++ show (take 16 xq))
       putStrLn ("xq sum=" ++ show (sum xq) ++ " absSum=" ++ show (sum (map abs xq)))
-      putStrLn ("idots[0..7]=" ++ show (take 8 idots))
-      putStrLn ("idots sum=" ++ show (sum idots))
       putStrLn ("y[0..7]=" ++ show (take 8 ys))
+      putStrLn ("y sum=" ++ show (sum ys) ++ "  (expect ~ -1005.7)")
     _ -> putStrLn "q_proj weight/scale MISSING"

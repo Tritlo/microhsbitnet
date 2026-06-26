@@ -16,6 +16,7 @@ module Safetensors
 import Data.Char (isDigit, isSpace)
 import Data.Word (Word8, Word16)
 import Data.Bits (shiftR, (.&.))
+import Mhs.Array (Array, listArray, (!))
 import qualified Data.ByteString as BS
 
 -- | One tensor's header entry: name, dtype string, logical shape, and the
@@ -124,8 +125,15 @@ lookupTensor n = go
     go []       = Nothing
     go (t : ts) = if tName t == n then Just t else go ts
 
+-- Exact powers of two 2^(e-127) for each raw bf16 exponent e (0..255), built once.
+-- @^^@ is repeated multiply/divide, so these are exact (unlike @**@).
+pow2 :: Array Int Float
+pow2 = listArray (0, 255) [ 2 ^^ (e - 127) | e <- [0 .. 255] ]
+
 -- | Decode a bf16 bit pattern to 'Float'. Exact: bf16's 7 mantissa bits fit in
--- Float's 23. (-1)^s * 2^(e-127) * (1 + m/128), with e==0 sub-normal/zero.
+-- Float's 23. (-1)^s * 2^(e-127) * (1 + m/128), with e==0 sub-normal/zero. Uses
+-- an O(1) power-of-two lookup (the LM head decodes embeddings hundreds of millions
+-- of times).
 bf16ToFloat :: Word16 -> Float
 bf16ToFloat w =
   let s = (w `shiftR` 15) .&. 1
@@ -133,10 +141,10 @@ bf16ToFloat w =
       m = fromIntegral (w .&. 0x7F) :: Int
       sign = if s == 1 then -1 else 1
   in if e == 0
-       then sign * (fromIntegral m / 128) * (2 ** (-126))
+       then sign * (fromIntegral m / 128) * (pow2 ! 1)
        else if e == 255
               then (if m == 0 then sign * (1 / 0) else 0 / 0)
-              else sign * (1 + fromIntegral m / 128) * (2 ** fromIntegral (e - 127))
+              else sign * (1 + fromIntegral m / 128) * (pow2 ! e)
 
 -- | Decode the little-endian bf16 at byte offset k of a ByteString to 'Float'.
 bf16At :: BS.ByteString -> Int -> Float
