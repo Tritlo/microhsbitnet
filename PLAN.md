@@ -27,6 +27,27 @@ build the elegant, correct reference, validate against an oracle, measure, then 
 - MicroHs has `Double`/`Float`, `Word8`, `Data.Bits` (`shiftR`, `.&.`), `ByteString`,
   `Foreign.Storable` (Word8/Word32/Float/Double), `Data.Array`, `STRef`, FFI.
 
+## Runtime primitive (fast path — branch `runtime-ternary-dot`)
+
+Pure MicroHs caps at ~10 s per 2560×2560 BitLinear: the combinator runtime does ~6.5M
+graph reductions for one matmul, and `BS.index` + boxed arithmetic dominate. None of the
+pure restructurings (4-output batching, unpacked-list bytes, multiply vs conditional) beat it.
+
+So the hot dot is a **runtime primitive**, not FFI: MicroHs is vendored at `vendor/microhs/`
+(full history, for upstream `subtree push`) and its runtime gains one opcode —
+`ternarydot rowBytes xq shift` in `vendor/microhs/src/runtime/eval.c` — computing
+`sum_c (field(rowBytes[c],shift)-1) * xq[c]` in C. Bound from Haskell in
+[`src/TernaryDot.hs`](src/TernaryDot.hs) via the `_primitive` keyword (no `foreign import`).
+The list-op `dotTrits` stays the spec the primitive must match.
+
+Result: the q_proj dot drops from ~10 s of CPU to negligible (~100–1000×); a BitLinear run is
+now dominated by model I/O.
+
+**Build with the vendored runtime** (the op is compiled into the executable at link time from
+`MHSDIR/src/runtime/eval.c`):
+
+    MHSDIR=$PWD/vendor/microhs ~/Code/MicroHs/bin/gmhs -isrc <Module> -obin/<out>
+
 ## MicroHs IO constraints (verified)
 
 - **`BS.empty` / `BS.concat` / `BS.pack []` are broken** (OOM — `empty = pack []` and the
