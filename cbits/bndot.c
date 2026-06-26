@@ -141,6 +141,56 @@ void bf16_to_f32(const void *srcv, int n, float *out) {
   }
 }
 
+/* Top-K over the vocab of (bf16 embedding row) · (f32 hidden), for sampling.
+ * Writes the k largest logits and their token ids in DESCENDING order. Each dot
+ * is a sequential double (as in bnargmax_bf16); k is clamped to 64. Indices are
+ * intptr_t to match the Haskell Int width. The sampling policy lives in Haskell. */
+void bntopk_bf16(const void *embed, const void *hF32, int hidden, int vocab,
+                 int k, void *outIdxv, void *outValv) {
+  const unsigned char *e  = (const unsigned char *)embed;
+  const unsigned char *hb = (const unsigned char *)hF32;
+  intptr_t *outIdx = (intptr_t *)outIdxv;
+  float    *outVal = (float *)outValv;
+  if (k > 64) k = 64;
+  if (k < 1)  k = 1;
+  float gv[64]; intptr_t gi[64];          /* global top-k, ascending (gv[0] smallest) */
+  { int i; for (i = 0; i < k; i++) { gv[i] = -INFINITY; gi[i] = -1; } }
+  #pragma omp parallel num_threads(bn_threads())
+  {
+    float lv[64]; intptr_t li[64];        /* thread-local top-k, ascending */
+    int i; for (i = 0; i < k; i++) { lv[i] = -INFINITY; li[i] = -1; }
+    int v;
+    #pragma omp for schedule(static)
+    for (v = 0; v < vocab; v++) {
+      const unsigned char *ev = e + (long)v * hidden * 2;
+      double acc = 0.0; int c;
+      for (c = 0; c < hidden; c++) {
+        uint32_t bits = ((uint32_t)((uint32_t)ev[2 * c] | ((uint32_t)ev[2 * c + 1] << 8))) << 16;
+        float wv; memcpy(&wv, &bits, sizeof wv);
+        acc += (double)wv * load_f32(hb + 4 * c);
+      }
+      float l = (float)acc;
+      if (l > lv[0]) {                     /* insert, evicting the smallest kept */
+        int j = 0;
+        while (j + 1 < k && l > lv[j + 1]) { lv[j] = lv[j + 1]; li[j] = li[j + 1]; j++; }
+        lv[j] = l; li[j] = v;
+      }
+    }
+    #pragma omp critical
+    {
+      for (i = 0; i < k; i++) {
+        float l = lv[i]; intptr_t id = li[i];
+        if (l > gv[0]) {
+          int j = 0;
+          while (j + 1 < k && l > gv[j + 1]) { gv[j] = gv[j + 1]; gi[j] = gi[j + 1]; j++; }
+          gv[j] = l; gi[j] = id;
+        }
+      }
+    }
+  }
+  { int i; for (i = 0; i < k; i++) { outVal[i] = gv[k - 1 - i]; outIdx[i] = gi[k - 1 - i]; } }
+}
+
 /* One float32 × float32 dot (attention q·k in the batch path). */
 double bndot_f32(const void *wv, const void *av, int n) {
   const unsigned char *w = (const unsigned char *)wv;

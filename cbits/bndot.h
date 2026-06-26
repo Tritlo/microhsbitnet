@@ -11,6 +11,11 @@ void bnmatmul_ternary(const void *w, const void *a, int inDim, int outDim, doubl
 /* The tied LM head: argmax over `vocab` of bf16 embedding · f32 hidden. */
 int bnargmax_bf16(const void *embed, const void *hF32, int hidden, int vocab, double *bestVal);
 
+/* Top-K of the same dot, descending, for sampling (k clamped to 64). Indices are
+ * intptr_t-wide. */
+void bntopk_bf16(const void *embed, const void *hF32, int hidden, int vocab,
+                 int k, void *outIdx, void *outVal);
+
 /* One float32 × float32 dot (attention q·k). */
 double bndot_f32(const void *w, const void *a, int n);
 

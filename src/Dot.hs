@@ -9,6 +9,7 @@ module Dot
   ( matmulTernary
   , argmaxBf16
   , argmaxBf16BS
+  , topkBf16
   , lmLogit
   , f32Dot
   , floatDot
@@ -40,6 +41,8 @@ foreign import ccall "bndot.h bnmatmul_ternary"
   c_matmul_ternary :: CString -> CString -> Int -> Int -> Ptr Double -> IO ()
 foreign import ccall "bndot.h bnargmax_bf16"
   c_argmax_bf16 :: CString -> CString -> Int -> Int -> Ptr Double -> IO Int
+foreign import ccall "bndot.h bntopk_bf16"
+  c_topk_bf16 :: CString -> CString -> Int -> Int -> Int -> Ptr Int -> Ptr Float -> IO ()
 foreign import ccall "bndot.h bndot_f32"
   c_f32 :: CString -> CString -> Int -> IO Double
 foreign import ccall "bndot.h bnrmsnorm"
@@ -83,6 +86,19 @@ argmaxBf16BS embedB hbs hiddenDim vocab = unsafePerformIO $
     bi <- c_argmax_bf16 ep hp hiddenDim vocab best
     bv <- peek best
     return (bi, doubleToFloat bv)
+
+-- | The top-@k@ @(token, logit)@ pairs (descending) of the LM head over the f32
+-- hidden buffer — the candidate set for sampling. @k@ is clamped to 64 in C.
+topkBf16 :: BS.ByteString -> BS.ByteString -> Int -> Int -> Int -> [(Int, Float)]
+topkBf16 embedB hbs hiddenDim vocab k = unsafePerformIO $
+  unsafeUseAsCStringLen embedB $ \ (ep, _) ->
+  unsafeUseAsCStringLen hbs    $ \ (hp, _) ->
+  allocaBytes (k * 8) $ \ idxP ->
+  allocaBytes (k * 4) $ \ valP -> do
+    c_topk_bf16 ep hp hiddenDim vocab k idxP valP
+    is <- mapM (peekElemOff idxP) [0 .. k - 1]
+    vs <- mapM (peekElemOff valP) [0 .. k - 1]
+    return (zip is vs)
 
 -- | A single LM-head logit for token @v@ (a diagnostic): the bf16 embedding row
 -- @v@ · the f32 @hidden@. Reuses 'argmaxBf16' over the one-row slice at @v@.
