@@ -87,9 +87,9 @@ typedef struct { uint32_t off, len; int32_t id; } VEntry;
 typedef struct { uint32_t aoff, alen, boff, blen; int32_t rank; } MEntry;
 
 static unsigned char *g_keybuf; static uint32_t g_keylen;
-static VEntry *g_vocab; static int g_nvocab;
+static VEntry *g_vocab; static int g_nvocab; static int g_vcap;
 static unsigned char *g_mkeybuf; static uint32_t g_mkeylen;
-static MEntry *g_merges; static int g_nmerges;
+static MEntry *g_merges; static int g_nmerges; static int g_mcap;
 
 #define MAXID 200000
 static unsigned char *g_decbuf; static uint32_t g_declen_total;
@@ -117,11 +117,16 @@ int bntok_load(const void *bytes, int len) {
   const char *s = (const char *)bytes, *end = s + len;
   int cps[1024];
   init_nonprint();
-  g_keybuf  = (unsigned char *)malloc(len);
-  g_mkeybuf = (unsigned char *)malloc(len);
-  g_decbuf  = (unsigned char *)malloc(len);
-  g_vocab   = (VEntry *)malloc(sizeof(VEntry) * 200000);
-  g_merges  = (MEntry *)malloc(sizeof(MEntry) * 500000);
+  /* keys are the canonical UTF-8 of the token codepoints, never longer than the
+   * source bytes, so the file length bounds them; decode bytes are vocab(<=len)
+   * + added(<=len). Entry arrays grow by realloc, so a file with more vocab/merge
+   * entries than expected no longer overflows. */
+  g_keybuf  = (unsigned char *)malloc((size_t)len + 16);
+  g_mkeybuf = (unsigned char *)malloc((size_t)len + 16);
+  g_decbuf  = (unsigned char *)malloc((size_t)len * 2 + 65536);
+  g_vcap = 200000; g_mcap = 500000;
+  g_vocab   = (VEntry *)malloc(sizeof(VEntry) * (size_t)g_vcap);
+  g_merges  = (MEntry *)malloc(sizeof(MEntry) * (size_t)g_mcap);
   g_keylen = g_mkeylen = g_declen_total = 0;
   g_nvocab = g_nmerges = 0;
   memset(g_decoff, 0, sizeof g_decoff);
@@ -142,6 +147,7 @@ int bntok_load(const void *bytes, int len) {
     /* key = canonical UTF-8 of the codepoints */
     uint32_t off = g_keylen;
     for (int i = 0; i < ncp; i++) g_keylen += utf8_emit(cps[i], g_keybuf + g_keylen);
+    if (g_nvocab >= g_vcap) { g_vcap *= 2; g_vocab = (VEntry *)realloc(g_vocab, sizeof(VEntry) * (size_t)g_vcap); }
     g_vocab[g_nvocab].off = off; g_vocab[g_nvocab].len = g_keylen - off; g_vocab[g_nvocab].id = id;
     g_nvocab++;
     /* decode bytes = level_to_byte(codepoints) */
@@ -186,6 +192,7 @@ int bntok_load(const void *bytes, int len) {
     uint32_t boff = g_mkeylen;
     for (int i = sp + 1; i < ncp; i++) g_mkeylen += utf8_emit(cps[i], g_mkeybuf + g_mkeylen);
     uint32_t blen = g_mkeylen - boff;
+    if (g_nmerges >= g_mcap) { g_mcap *= 2; g_merges = (MEntry *)realloc(g_merges, sizeof(MEntry) * (size_t)g_mcap); }
     g_merges[g_nmerges].aoff = aoff; g_merges[g_nmerges].alen = alen;
     g_merges[g_nmerges].boff = boff; g_merges[g_nmerges].blen = blen;
     g_merges[g_nmerges].rank = g_nmerges;

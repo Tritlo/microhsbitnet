@@ -14,6 +14,9 @@ int bnargmax_bf16(const void *embed, const void *hF32, int hidden, int vocab, do
 /* One float32 × float32 dot (attention q·k). */
 double bndot_f32(const void *w, const void *a, int n);
 
+/* Decode n bf16 values to float32 (one-time weight setup). */
+void bf16_to_f32(const void *src, int n, float *out);
+
 /* ---- per-token vector math (generation path) ---- */
 
 /* out = w * x / sqrt(mean(x^2) + eps). */

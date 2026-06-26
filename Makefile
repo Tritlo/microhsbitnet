@@ -5,7 +5,9 @@
 # in via FFI (plain `foreign import ccall`, no runtime patch). Modules that import
 # Dot need the kernel; the rest don't.
 #
-# Run a built demo with a big nursery, e.g.:  ./bin/m3 +RTS -H800M -RTS
+# Run the demo:  ./bin/m4 ["prompt" [nGen]]   -- runs in ~2GB with the default heap
+# (BNDOT_THREADS=N to set the thread count). The Haskell batch path (M2/M3) still
+# wants a big nursery, e.g.:  ./bin/m3 +RTS -H800M -RTS
 
 GMHS   ?= $(HOME)/Code/MicroHs/bin/gmhs
 MHSDIR := $(CURDIR)/vendor/microhs

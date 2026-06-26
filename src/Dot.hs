@@ -8,6 +8,7 @@
 module Dot
   ( matmulTernary
   , argmaxBf16
+  , argmaxBf16BS
   , lmLogit
   , f32Dot
   , floatDot
@@ -21,6 +22,7 @@ module Dot
   , bnAttend
   , bnSqReluMul
   , bnAdd
+  , decodeBf16
   ) where
 
 import qualified Data.ByteString as BS
@@ -52,6 +54,8 @@ foreign import ccall "bndot.h bnsqrelu_mul"
   c_sqrelu_mul :: CString -> CString -> Int -> Ptr Float -> IO ()
 foreign import ccall "bndot.h bnadd"
   c_add :: CString -> CString -> Int -> Ptr Float -> IO ()
+foreign import ccall "bndot.h bf16_to_f32"
+  c_bf16_to_f32 :: CString -> Int -> Ptr Float -> IO ()
 
 -- | A whole W1.58 BitLinear matmul: @outDim@ raw integer dots (as Double) of the
 -- packed ternary weight against the int8 activations @xqBS@. One FFI call; the
@@ -67,8 +71,12 @@ matmulTernary packed xqBS inDim outDim = unsafePerformIO $
 -- | The tied LM head's argmax: scans the whole @vocab@ of the bf16 @embedB@ rows
 -- dotted with the f32 @hidden@ vector, returning @(argmax token, logit)@.
 argmaxBf16 :: BS.ByteString -> [Float] -> Int -> Int -> (Int, Float)
-argmaxBf16 embedB hidden hiddenDim vocab = unsafePerformIO $
-  let hbs = packF32 hidden in
+argmaxBf16 embedB hidden = argmaxBf16BS embedB (packF32 hidden)
+
+-- | As 'argmaxBf16' but the hidden vector is already an f32 byte buffer (e.g. a
+-- 'bnRmsNorm' result), avoiding a pack\/unpack round-trip at the final norm.
+argmaxBf16BS :: BS.ByteString -> BS.ByteString -> Int -> Int -> (Int, Float)
+argmaxBf16BS embedB hbs hiddenDim vocab = unsafePerformIO $
   unsafeUseAsCStringLen embedB $ \ (ep, _) ->
   unsafeUseAsCStringLen hbs    $ \ (hp, _) ->
   alloca                       $ \ best -> do
@@ -176,3 +184,9 @@ bnAdd :: BS.ByteString -> BS.ByteString -> Int -> BS.ByteString
 bnAdd a b n = withOut n $ \ out ->
   unsafeUseAsCStringLen a $ \ (ap, _) ->
   unsafeUseAsCStringLen b $ \ (bp, _) -> c_add ap bp n out
+
+-- | Decode @n@ bf16 values to a float32 byte buffer (one-time weight setup, e.g.
+-- the RMSNorm weights — far faster than @bf16At@ per element in Haskell).
+decodeBf16 :: BS.ByteString -> Int -> BS.ByteString
+decodeBf16 src n = withOut n $ \ out ->
+  unsafeUseAsCStringLen src $ \ (sp, _) -> c_bf16_to_f32 sp n out

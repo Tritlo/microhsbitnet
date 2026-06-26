@@ -130,6 +130,17 @@ int bnargmax_bf16(const void *embed, const void *hF32, int hidden, int vocab, do
   return bestI;
 }
 
+/* Decode n bf16 values (little-endian) to float32. For one-time weight setup
+ * (e.g. the RMSNorm weights) — bf16->f32 is the high 16 bits, so (bits << 16). */
+void bf16_to_f32(const void *srcv, int n, float *out) {
+  const unsigned char *s = (const unsigned char *)srcv;
+  int i;
+  for (i = 0; i < n; i++) {
+    uint32_t bits = ((uint32_t)((uint32_t)s[2 * i] | ((uint32_t)s[2 * i + 1] << 8))) << 16;
+    memcpy(&out[i], &bits, sizeof out[i]);
+  }
+}
+
 /* One float32 × float32 dot (attention q·k in the batch path). */
 double bndot_f32(const void *wv, const void *av, int n) {
   const unsigned char *w = (const unsigned char *)wv;
@@ -165,7 +176,7 @@ void bnbitlinear(const void *packed, float wscale, const void *xv, int inDim, in
   for (i = 0; i < inDim; i++) { float a = fabsf(x[i]); if (a > amax) amax = a; }
   if (amax < 1.0e-5f) amax = 1.0e-5f;
   float sc = 127.0f / amax;
-  signed char *xq = (signed char *)malloc((size_t)inDim);
+  signed char xq[inDim];   /* stack scratch (inDim <= 6912) */
   for (i = 0; i < inDim; i++) {
     long q = lrintf(x[i] * sc);
     if (q < -128) q = -128; else if (q > 127) q = 127;
@@ -180,7 +191,6 @@ void bnbitlinear(const void *packed, float wscale, const void *xv, int inDim, in
     const unsigned char *wr = w + (long)(r % chunk) * inDim;
     out[r] = (float)ternary_row(wr, xq, inDim, shift) * wscale / sc;
   }
-  free(xq);
 }
 
 /* Rotary position embedding, in place, on each of nHeads heads of length headDim.
@@ -188,11 +198,16 @@ void bnbitlinear(const void *packed, float wscale, const void *xv, int inDim, in
 void bnrope(void *vecv, int pos, int nHeads, int headDim, float theta) {
   float *vec = (float *)vecv;
   int half = headDim / 2;
-  int k;
-  float *inv = (float *)malloc((size_t)half * sizeof(float));
-  for (k = 0; k < half; k++)
-    inv[k] = powf(theta, -2.0f * (float)k / (float)headDim);
-  int h;
+  int k, h;
+  /* inv_freq is constant across the run; compute it once (keyed by headDim/theta).
+   * Called from the single Haskell thread, so the static cache needs no lock. */
+  static float inv[512];
+  static int   inv_hd = 0;
+  static float inv_th = 0.0f;
+  if (inv_hd != headDim || inv_th != theta) {
+    for (k = 0; k < half; k++) inv[k] = powf(theta, -2.0f * (float)k / (float)headDim);
+    inv_hd = headDim; inv_th = theta;
+  }
   for (h = 0; h < nHeads; h++) {
     float *hv = vec + h * headDim;
     for (k = 0; k < half; k++) {
@@ -203,7 +218,6 @@ void bnrope(void *vecv, int pos, int nHeads, int headDim, float theta) {
       hv[half + k] = x2 * c + x1 * s;
     }
   }
-  free(inv);
 }
 
 /* GQA causal attention for one new query against the cached keys/values. q is
@@ -221,7 +235,7 @@ void bnattend(const void *qv, const void *cKv, const void *cVv, int nPos,
   for (h = 0; h < nHeads; h++) {
     int kv = h / groups;
     const float *qh = q + h * headDim;
-    float *scores = (float *)malloc((size_t)nPos * sizeof(float));
+    float scores[nPos];   /* per-thread stack scratch */
     float m = -INFINITY;
     int p, c;
     for (p = 0; p < nPos; p++) {
@@ -241,7 +255,6 @@ void bnattend(const void *qv, const void *cKv, const void *cVv, int nPos,
       const float *vh = cV + (long)p * kvDim + kv * headDim;
       for (c = 0; c < headDim; c++) oh[c] += wgt * vh[c];
     }
-    free(scores);
   }
 }
 

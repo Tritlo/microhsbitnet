@@ -5,12 +5,14 @@ module Forward
   ( look
   , mkLin
   , mkNorm
+  , mkNormBS
   , buildLayers
   , finalHidden
   , argmaxLogits
   , emptyCaches
   , stepLayers
   , buildLayersC
+  , forceLayersC
   , emptyCachesC
   , stepLayersC
   , cVocab
@@ -21,7 +23,7 @@ import Data.List (foldl')
 import Safetensors (Tensor(..), lookupTensor, bf16At)
 import Loader (slice)
 import Model
-import Dot (argmaxBf16, packF32)
+import Dot (argmaxBf16, packF32, decodeBf16)
 
 cVocab :: Int
 cVocab = 128256
@@ -44,6 +46,14 @@ mkNorm ts dat name =
       d = head (tShape t)
       b = slice dat t
   in [ bf16At b (2 * c) | c <- [0 .. d - 1] ]
+
+-- | A norm weight decoded bf16->f32 straight to a byte buffer in C (the C-path
+-- equivalent of @packF32 . mkNorm@, but without the per-element Haskell decode).
+mkNormBS :: [Tensor] -> BS.ByteString -> String -> BS.ByteString
+mkNormBS ts dat name =
+  let t = look ts name
+      d = head (tShape t)
+  in decodeBf16 (slice dat t) d
 
 buildLayer :: [Tensor] -> BS.ByteString -> Int -> Layer
 buildLayer ts dat i =
@@ -69,7 +79,7 @@ buildLayers ts dat n = [ buildLayer ts dat i | i <- [0 .. n - 1] ]
 buildLayerC :: [Tensor] -> BS.ByteString -> Int -> LayerC
 buildLayerC ts dat i =
   let p        = "model.layers." ++ show i ++ "."
-      normBS n = packF32 (mkNorm ts dat (p ++ n))
+      normBS n = mkNormBS ts dat (p ++ n)
   in LayerC
        (normBS "input_layernorm.weight")
        (mkLin ts dat (p ++ "self_attn.q_proj"))
@@ -86,6 +96,17 @@ buildLayerC ts dat i =
 -- | Build all @n@ decoder layers for the C generation path.
 buildLayersC :: [Tensor] -> BS.ByteString -> Int -> [LayerC]
 buildLayersC ts dat n = [ buildLayerC ts dat i | i <- [0 .. n - 1] ]
+
+-- | Force every byte buffer of the built layers (their total size). Used to
+-- separate one-time weight setup (the norm bf16->f32 decode) from prefill timing.
+forceLayersC :: [LayerC] -> Int
+forceLayersC = foldl' (\ acc l -> acc + layerBytes l) 0
+  where
+    linBytes (Lin p _ _ _) = BS.length p
+    layerBytes (LayerC n1 q k v n2 o n3 g u n4 d) =
+      BS.length n1 + BS.length n2 + BS.length n3 + BS.length n4
+        + linBytes q + linBytes k + linBytes v + linBytes o
+        + linBytes g + linBytes u + linBytes d
 
 -- Deeply force a sequence of vectors so the layer fold can't build a giant thunk.
 forceSeq :: [[Float]] -> [[Float]]
