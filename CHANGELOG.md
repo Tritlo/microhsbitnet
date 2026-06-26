@@ -24,3 +24,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   matches a numpy oracle (`test/oracle_m1.py`) bit-exactly on the integer dots (incl. full-matrix
   sum) and to Float precision on outputs. Loader factored into `Loader.hs`. Measured ~23 s per
   2560×2560 BitLinear in the combinator runtime (perf for the C→B gate).
+- **B — `dotRow` workhorse**: folds directly over a row's contiguous packed bytes (routing by
+  the 2-bit field, walking int8 activations in lockstep) with no intermediate `[Trit]` list —
+  ~2× faster (23 s → ~10.5 s), bit-exact vs `dotTrits`. `dotTrits` kept as the showcase spec.
+- **M2 — full decoder block** (`src/Model.hs`, `src/M2.hs`): RMSNorm, RoPE, GQA causal
+  attention, both sub-norms, squared-ReLU gated MLP, residuals. Layer-0 output matches an HF
+  transformers oracle (`test/oracle_m2.py`) to ~5-6 sig figs at first/last positions. The oracle
+  reinterprets this transformers version's broken uint8 (`-1→255` underflow) BitLinear weights as
+  int8 to recover proper ternary, loading the model in float32.
