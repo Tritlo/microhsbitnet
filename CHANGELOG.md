@@ -48,4 +48,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   **"Hello! How can I assist you today?"** — matching HF greedy generation (`test/oracle_m4.py`)
   token-for-token. The cache (`decoderStep` in `src/Model.hs`, all in Haskell) processes the
   prompt once then runs only the new token each step, reusing stored keys/values — ~45 s/token
-  vs ~3 min growing without it. Tokenization is offline (`test/toktool.py`).
+  vs ~3 min growing without it.
+- **Haskell tokenizer** (`src/Tokenizer.hs`): byte-level BPE encode + decode, no Python. The
+  GPT-2 byte↔unicode table is computed; tokenizer.json is parsed (UTF-8) for vocab + merges into
+  sorted `Mhs.Array` lookups (no `Data.Map`). Encode = hand-written Llama 3 pre-tokenizer +
+  byte-level + BPE (`ignore_merges`, lazy merges); the chat template wraps it. `encodeChat
+  "Hello!"` → the exact Python ids, and decode round-trips. M4 now takes a prompt *string* and
+  prints generated *text* — the whole pipeline (tokenize → model → generate → detokenize) is pure
+  MicroHaskell. `test/toktool.py` remains only as the cross-check oracle.

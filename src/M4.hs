@@ -1,59 +1,61 @@
--- | M4 — greedy autoregressive generation with a KV cache (the "hello world").
--- Feeds a chat prompt (token ids; tokenization is offline via test/toktool.py —
--- no BPE in MicroHs) and generates tokens one at a time, printing each.
---
--- The cache makes it fast: the prompt is processed once (prefill), then each new
--- token only runs ONE position through the layers, reusing the cached keys/values
--- for attention — instead of reprocessing the whole sequence every step.
+-- | M4 — the full self-contained demo: a prompt STRING in, generated TEXT out,
+-- entirely in MicroHaskell (tokenizer, model, KV-cache generation — no Python).
 module M4(main) where
 
 import System.IO (hFlush, stdout)
 import Data.List (foldl')
+import qualified Data.ByteString as BS
 import Loader (loadModel, slice)
 import Model (rmsNorm, embedRow)
 import Forward (look, mkNorm, buildLayers, argmaxLogits, emptyCaches, stepLayers)
+import Tokenizer (loadTokenizer, encodeChat, decode)
 
 modelPath :: String
 modelPath = "models/bitnet-b1.58-2B-4T/model.safetensors"
 
--- "User: Hello!<|eot_id|>Assistant: " (from test/toktool.py encode).
-prompt :: [Int]
-prompt = [1502, 25, 22691, 0, 128009, 72803, 25, 220]
+tokPath :: String
+tokPath = "models/bitnet-b1.58-2B-4T/tokenizer.json"
+
+promptText :: String
+promptText = "Hello!"
 
 eosIds :: [Int]
 eosIds = [128001, 128009]
 
 nGen :: Int
-nGen = 16
+nGen = 24
 
 main :: IO ()
 main = do
   (ts, dat) <- loadModel modelPath
+  tok <- loadTokenizer tokPath
   let embedB = slice dat (look ts "model.embed_tokens.weight")
       normW  = mkNorm ts dat "model.norm.weight"
       layers = buildLayers ts dat 30
+      prompt = encodeChat tok promptText
+  putStrLn ("prompt: " ++ promptText)
   putStrLn ("prompt ids: " ++ unwords (map show prompt))
 
-  -- Prefill: thread each prompt token through the layers, building the caches;
-  -- keep the last position's hidden (which predicts the first generated token).
-  let prefill (caches, _) (pos, tok) =
-        let (h, caches') = stepLayers layers pos caches (embedRow embedB tok)
+  -- Prefill the prompt into the KV caches; keep the last position's hidden.
+  let prefill (caches, _) (pos, t) =
+        let (h, caches') = stepLayers layers pos caches (embedRow embedB t)
         in (caches', h)
       (caches0, lastH0) = foldl' prefill (emptyCaches (length layers), []) (zip [0 ..] prompt)
       pos0 = length prompt
 
-  -- Generation: predict from the running hidden, then step that token (one
-  -- position) to get the next hidden.
+  -- Greedy generation with the cache: predict, then step the chosen token.
   let loop caches pos lastH k = do
-        let (tok, lg) = argmaxLogits embedB (rmsNorm normW lastH)
-        putStrLn ("  -> " ++ show tok ++ "  (logit " ++ show lg ++ ")")
-        hFlush stdout
-        if tok `elem` eosIds || k <= 0
-          then return [tok]
+        let (t, _) = argmaxLogits embedB (rmsNorm normW lastH)
+        putStr (show t ++ " "); hFlush stdout
+        if t `elem` eosIds || k <= 0
+          then return [t]
           else do
-            let (h, caches') = stepLayers layers pos caches (embedRow embedB tok)
+            let (h, caches') = stepLayers layers pos caches (embedRow embedB t)
             rest <- loop caches' (pos + 1) h (k - 1)
-            return (tok : rest)
+            return (t : rest)
+  putStr "generated ids: "
   gen <- loop caches0 pos0 lastH0 nGen
-  putStrLn ("generated ids: " ++ unwords (map show gen))
-  putStrLn ("all ids: " ++ unwords (map show (prompt ++ gen)))
+  putStrLn ""
+  putStrLn "generated text:"
+  BS.putStr (BS.pack (decode tok gen))
+  putStrLn ""
