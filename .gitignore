@@ -1,0 +1,7 @@
+# Model weights (fetched, not versioned)
+/models/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
