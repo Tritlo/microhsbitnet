@@ -36,10 +36,12 @@ pure restructurings (4-output batching, unpacked-list bytes, multiply vs conditi
 So the hot dot is a **runtime primitive**, not FFI: MicroHs is vendored at `vendor/microhs/`
 (full history, for upstream `subtree push`) and its runtime gains one opcode —
 `bndot kind weights acts shift len` in `vendor/microhs/src/runtime/eval.c` — that does the dot
-in C and returns a Float. One primitive covers both BitNet dots (kind picked once, outside the
-inner loop): **kind 0** = ternary×int8 (`(field(w,shift)-1) * a`, the BitLinears), **kind 1** =
-bf16×float32 (`bf16(w) * a`, the LM head). Bound from Haskell in [`src/Dot.hs`](src/Dot.hs) via
-the `_primitive` keyword (no `foreign import`). The list-op `dotTrits` stays the spec for kind 0.
+in C and returns a Float. One primitive covers every dot in the forward (kind picked once,
+outside the inner loop): **kind 0** = ternary×int8 (`(field(w,shift)-1) * a`, the BitLinears),
+**kind 1** = bf16×float32 (`bf16(w) * a`, the LM head), **kind 2** = float32×float32 (attention
+`q·k` and any full-precision dot). Bound from Haskell in [`src/Dot.hs`](src/Dot.hs) via the
+`_primitive` keyword (no `foreign import`). The list-op `dotTrits` stays the spec for kind 0.
+(bf16×bf16 and int8×int8 kinds aren't used by this model, so they're omitted.)
 
 Result: q_proj ~10 s → negligible; full decoder block (M2) ~3.5 min → 3.5 s; **full 30-layer
 forward + LM head (M3) ~55 min → ~25 s**, argmax matching HF (token 11). Per-layer math stays

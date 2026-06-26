@@ -10,6 +10,7 @@ module Dot
   , packF32
   , bitLinearPrim
   , lmLogit
+  , floatDot
   ) where
 
 import qualified Data.ByteString as BS
@@ -54,6 +55,11 @@ bitLinearPrim packed inDim outDim wscale xqBS ascale =
       row j = BS.take inDim (BS.drop (j * inDim) packed)
   in [ bnDot 0 (row (r `mod` chunk)) xqBS (2 * (r `div` chunk)) inDim * wscale / ascale
      | r <- [0 .. outDim - 1] ]
+
+-- | Dense float32 dot of two equal-length float32 byte vectors (kind 2). Used
+-- for attention q·k scores and any full-precision dot.
+floatDot :: BS.ByteString -> BS.ByteString -> Int -> Float
+floatDot w a len = bnDot 2 w a 0 len
 
 -- | LM-head logit for token @v@ via kind-1 bndot: the float32 hidden vector
 -- @hF32@ dotted with the bf16 embedding row v. @embedB@ is the full embed_tokens

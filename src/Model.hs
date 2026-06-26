@@ -17,7 +17,7 @@ module Model
 
 import qualified Data.ByteString as BS
 import Safetensors (bf16At)
-import Dot (quantizeActBS, bitLinearPrim)
+import Dot (quantizeActBS, bitLinearPrim, packF32, floatDot)
 
 -- Model dimensions (BitNet b1.58 2B4T).
 cHidden, cHeads, cKV, cHeadDim :: Int
@@ -77,9 +77,6 @@ softmax xs =
       s  = sum es
   in map (/ s) es
 
-dotF :: [Float] -> [Float] -> Float
-dotF a b = sum (zipWith (*) a b)
-
 sliceHead :: [Float] -> Int -> [Float]
 sliceHead vec h = take cHeadDim (drop (h * cHeadDim) vec)
 
@@ -91,13 +88,15 @@ attention qSeq kSeq vSeq =
   let seqLen  = length qSeq
       nGroups = cHeads `div` cKV
       scale   = 1.0 / sqrt (fromIntegral cHeadDim)
-      qH = [ [ applyRope p (sliceHead (qSeq !! p) h)  | h  <- [0 .. cHeads - 1] ] | p <- [0 .. seqLen - 1] ]
-      kH = [ [ applyRope p (sliceHead (kSeq !! p) kv) | kv <- [0 .. cKV - 1] ]    | p <- [0 .. seqLen - 1] ]
-      vH = [ [ sliceHead (vSeq !! p) kv               | kv <- [0 .. cKV - 1] ]    | p <- [0 .. seqLen - 1] ]
+      -- RoPE'd q/k heads packed to float32 bytes so the q·k scores use the
+      -- kind-2 (float32) bndot primitive; v stays a list for the weighted sum.
+      qH = [ [ packF32 (applyRope p (sliceHead (qSeq !! p) h))  | h  <- [0 .. cHeads - 1] ] | p <- [0 .. seqLen - 1] ]
+      kH = [ [ packF32 (applyRope p (sliceHead (kSeq !! p) kv)) | kv <- [0 .. cKV - 1] ]    | p <- [0 .. seqLen - 1] ]
+      vH = [ [ sliceHead (vSeq !! p) kv                         | kv <- [0 .. cKV - 1] ]    | p <- [0 .. seqLen - 1] ]
       attnAt p h =
         let kv     = h `div` nGroups
             qv     = (qH !! p) !! h
-            scores = [ dotF qv ((kH !! p') !! kv) * scale | p' <- [0 .. p] ]
+            scores = [ floatDot qv ((kH !! p') !! kv) cHeadDim * scale | p' <- [0 .. p] ]
             sm     = softmax scores
             vs     = [ (vH !! p') !! kv | p' <- [0 .. p] ]
         in foldr1 (zipWith (+)) (zipWith (\w vv -> map (w *) vv) sm vs)
