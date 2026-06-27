@@ -116,12 +116,12 @@ model *is* — is MicroHaskell.
 ## Build & run
 
 Needs a stock [MicroHs](https://github.com/augustss/MicroHs) (`gmhs` on `PATH` or at
-`~/Code/MicroHs` — set `GMHS` to override) and the model files under `models/bitnet-b1.58-2B-4T/`
-(`model.safetensors`, `tokenizer.json`). The exact known-good MicroHs is pinned as a submodule at
-`vendor/microhs/` (`git submodule update --init` to fetch it); the build uses your installed `gmhs`.
+`~/Code/MicroHs` — set `GMHS` to override). `make` bootstraps the rest from a fresh clone: it
+inits the pinned-MicroHs submodule (`vendor/microhs/`, documentary — the build uses your installed
+`gmhs`) and fetches the model weights + tokenizer (~1.2 GB, only if missing), then builds.
 
 ```
-make            # build everything (the Makefile passes -fopenmp/-march=native to cc)
+make            # init submodule + fetch model (if missing) + build everything
 ./bin/m4 "Your prompt here" 32          # one-shot, 32 tokens
 ./bin/chat "You are a terse assistant"  # REPL with an optional system prompt
 BN_TEMP=0.8 ./bin/chat                  # sample instead of greedy
