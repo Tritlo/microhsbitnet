@@ -14,8 +14,26 @@ GMHS   ?= $(HOME)/Code/MicroHs/bin/gmhs
 MHS     = $(GMHS) -isrc -optc -fopenmp -optc -march=native -optl -fopenmp
 KERNEL  = -Icbits cbits/bndot.c
 
-.PHONY: all fast plain clean
-all: fast plain
+# One command from a fresh clone: fetch the pinned MicroHs (submodule) + the
+# model weights, then build everything. (Re-runs are cheap: the submodule and the
+# model files are only fetched if missing.)
+MODEL_DIR  := models/bitnet-b1.58-2B-4T
+HF_BASE    := https://huggingface.co/microsoft/bitnet-b1.58-2B-4T/resolve/main
+
+.PHONY: all fast plain clean setup submodule model
+all: submodule model fast plain
+
+setup: all   # alias
+
+# The pinned MicroHs source (documentary — the build uses your installed gmhs).
+submodule:
+	@git submodule update --init --recursive 2>/dev/null || true
+
+# Fetch the model weights + tokenizer into models/ (gitignored). ~1.2 GB once.
+model: $(MODEL_DIR)/model.safetensors $(MODEL_DIR)/tokenizer.json
+$(MODEL_DIR)/model.safetensors $(MODEL_DIR)/tokenizer.json:
+	@mkdir -p $(MODEL_DIR)
+	curl -L --fail -C - -o $@ $(HF_BASE)/$(@F)
 
 # Fast path (import Dot -> link the bndot kernel).
 fast: m1 m2 m3 m4 chat testkinds
