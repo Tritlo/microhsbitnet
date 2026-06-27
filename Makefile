@@ -1,20 +1,18 @@
 # Build the BitNet-b1.58-in-MicroHaskell demos.
 #
-# MicroHs is vendored (clean upstream, pinned) at vendor/microhs and supplies the
-# lib + runtime via MHSDIR. The fast-path dot is the C kernel cbits/bndot.c, linked
-# in via FFI (plain `foreign import ccall`, no runtime patch). Modules that import
-# Dot need the kernel; the rest don't.
+# Needs a MicroHs install (stock — no patch, no fork): point GMHS at its gmhs, or
+# have ~/Code/MicroHs/bin/gmhs. gmhs auto-detects its own lib + runtime. The
+# fast-path dot is the C kernel cbits/bndot.c, linked via FFI (plain
+# `foreign import ccall`); its OpenMP + AVX2 flags go straight to cc with
+# -optc/-optl. Modules that import Dot need the kernel; the rest don't.
 #
 # Run the demo:  ./bin/m4 ["prompt" [nGen]]   -- runs in ~2GB with the default heap
 # (BNDOT_THREADS=N to set the thread count). The Haskell batch path (M2/M3) still
 # wants a big nursery, e.g.:  ./bin/m3 +RTS -H800M -RTS
 
 GMHS   ?= $(HOME)/Code/MicroHs/bin/gmhs
-MHSDIR := $(CURDIR)/vendor/microhs
-MHS     = MHSDIR=$(MHSDIR) $(GMHS) -isrc
-# Fast modules build with the -t unix_omp target (-march=native -fopenmp) and link
-# the kernel; run with BNDOT_THREADS=N to override the 12-thread default.
-KERNEL  = -tunix_omp -Icbits cbits/bndot.c
+MHS     = $(GMHS) -isrc -optc -fopenmp -optc -march=native -optl -fopenmp
+KERNEL  = -Icbits cbits/bndot.c
 
 .PHONY: all fast plain clean
 all: fast plain

@@ -200,12 +200,20 @@ main = do
   putStrLn ("  +1  identity  I:   " ++ show nPos  ++ "  (" ++ pct nPos  ++ ")")
   putStrLn ("   0  drop      K:   " ++ show nZero ++ "  (" ++ pct nZero ++ ")")
   putStrLn ("  -1  negate    C P: " ++ show nNeg  ++ "  (" ++ pct nNeg  ++ ")")
+  let cI  = size (toSKI I)
+      cK  = size (toSKI K)
+      cCP = size (toSKI (C :@ P))
+      skiNodes = fromIntegral nPos  * fromIntegral cI
+               + fromIntegral nZero * fromIntegral cK
+               + fromIntegral nNeg  * fromIntegral cCP :: Integer
+  putStrLn ("as pure S/K/I combinators (I=" ++ show cI ++ ", K=" ++ show cK ++ ", C P=" ++ show cCP ++ " each):")
+  putStrLn ("  the whole model is " ++ show skiNodes ++ " combinators")
   let sI  = size (toIota I)
       sK  = size (toIota K)
       sCP = size (toIota (C :@ P))
       iotaNodes = fromIntegral nPos  * fromIntegral sI
                 + fromIntegral nZero * fromIntegral sK
                 + fromIntegral nNeg  * fromIntegral sCP :: Integer
-  putStrLn ("as iota trees (I=" ++ show sI ++ ", K=" ++ show sK ++ ", C P=" ++ show sCP ++ " nodes each):")
-  putStrLn ("  the whole model is " ++ show iotaNodes ++ " iota (i) nodes")
-  putStrLn "  -- a credible witness, computed; not a tree we materialize."
+  putStrLn ("as iota (i) trees (I=" ++ show sI ++ ", K=" ++ show sK ++ ", C P=" ++ show sCP ++ " each):")
+  putStrLn ("  the whole model is " ++ show iotaNodes ++ " iota nodes")
+  putStrLn "  -- credible witnesses, computed; not trees we materialize."

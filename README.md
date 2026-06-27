@@ -28,6 +28,18 @@ No multiplications appear in the matmul — only routing each activation into a 
 `0 = K`, `-1 = C·P` (negation as a difference pair) — and even as **iota trees** (`ι = λf. f S K`).
 The list-op formulation is the *meaning* of the program; everything else is making it run.
 
+Taken to its conclusion, the showcase counts every ternary weight in the real model and reports
+what the *whole* model is as combinators (computed, not materialized):
+
+```
+2,084,044,800 ternary weights   (42.2% drop, 28.8% identity, 28.8% negate)
+  as pure S/K/I combinators:   22,557,610,090   (~22.6 billion)
+  as iota (ι) trees:           98,058,519,993   (~98 billion)
+```
+
+A 2.4-billion-parameter language model is **~22.6 billion `S`/`K`/`I` combinators** — or, in the
+single-combinator iota basis, **~98 billion `ι` nodes**. Run `./bin/showcase` to see it.
+
 ## What works
 
 ```
@@ -103,11 +115,13 @@ model *is* — is MicroHaskell.
 
 ## Build & run
 
-Needs [MicroHs](https://github.com/augustss/MicroHs) (`gmhs` on `PATH` or at `~/Code/MicroHs`) and
-the model files under `models/bitnet-b1.58-2B-4T/` (`model.safetensors`, `tokenizer.json`).
+Needs a stock [MicroHs](https://github.com/augustss/MicroHs) (`gmhs` on `PATH` or at
+`~/Code/MicroHs` — set `GMHS` to override) and the model files under `models/bitnet-b1.58-2B-4T/`
+(`model.safetensors`, `tokenizer.json`). The exact known-good MicroHs is pinned as a submodule at
+`vendor/microhs/` (`git submodule update --init` to fetch it); the build uses your installed `gmhs`.
 
 ```
-make            # build everything (Makefile selects -tunix_omp = -march=native -fopenmp)
+make            # build everything (the Makefile passes -fopenmp/-march=native to cc)
 ./bin/m4 "Your prompt here" 32          # one-shot, 32 tokens
 ./bin/chat "You are a terse assistant"  # REPL with an optional system prompt
 BN_TEMP=0.8 ./bin/chat                  # sample instead of greedy

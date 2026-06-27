@@ -62,14 +62,15 @@ fused quant+matmul+rescale, `bnrope`, `bnattend`, `bnsqrelu_mul`, `bnadd`; `deco
 `stepLayersC`). Generation: 6:10 → **0:37** (~10×), bit-identical text. M1/M2/M3 keep the Haskell
 batch path (oracles untouched).
 
-**Build** — use the `Makefile` (it picks the `-tunix_omp` target = `-march=native -fopenmp`, and
-links the kernel). MicroHs is vendored at `vendor/microhs/` (clean upstream + that one build target)
-and supplies the lib + runtime; the kernel links in like any `.c` argument:
+**Build** — use the `Makefile`; it passes the OpenMP/AVX2 flags to cc via `-optc`/`-optl` and links
+the kernel. It builds against any **stock** MicroHs install — `gmhs` auto-detects its own lib +
+runtime (no patch, no fork). The exact known-good MicroHs is pinned as a git **submodule** at
+`vendor/microhs/` (upstream `augustss/MicroHs`), but the build uses your installed `gmhs`:
 
-    MHSDIR=$PWD/vendor/microhs ~/Code/MicroHs/bin/gmhs -isrc -tunix_omp -Icbits <Module> cbits/bndot.c -obin/<out>
+    gmhs -isrc -optc -fopenmp -optc -march=native -optl -fopenmp -Icbits <Module> cbits/bndot.c -obin/<out>
 
-(Modules without the fast path — M0, TestTok, Showcase — drop `-tunix_omp -Icbits cbits/bndot.c`.)
-Run with `BNDOT_THREADS=N` to override the 12-thread default.
+(M0 links no kernel; TestTok links only `cbits/tokparse.c`.) Run with `BNDOT_THREADS=N` to override
+the 12-thread default.
 
 ## MicroHs IO constraints (verified)
 
