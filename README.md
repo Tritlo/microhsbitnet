@@ -40,6 +40,24 @@ what the *whole* model is as combinators (computed, not materialized):
 A 2.4-billion-parameter language model is **~22.6 billion `S`/`K`/`I` combinators** — or, in the
 single-combinator iota basis, **~98 billion `ι` nodes**. Run `./bin/showcase` to see it.
 
+And that's just the *ternary* part. The **whole program** — the code, the bf16 **embeddings**, and
+the tokenizer — compiled to one self-contained pure combinator term (no primitives; numbers as
+Church numerals; `./bin/estimate`):
+
+| component (int8-quantized) | combinators | iotas |
+|---|---:|---:|
+| code (forward, attention, RoPE, softmax, BPE, sampling) | 52,157 | ~0.5 M |
+| ternary weights (list-ops) | 22.56 B | 98.06 B |
+| int8 embeddings | 34.84 B | 159.22 B |
+| int8 norms / scales | 0.14 B | 0.62 B |
+| tokenizer strings | 2.13 B | 9.77 B |
+| **TOTAL** | **≈ 59.7 B** | **≈ 267.7 B** |
+
+The *code* — the entire algorithm — is **52 K** combinators, a rounding error; the program is
+~99.9999 % data. As shipped (bf16 embeddings) it's ~**53 trillion** combinators; quantized to int8
+it drops ~900× to ~60 billion, and the elegant ternary core finally shows through. Full accounting
+and assumptions in [docs/combinator-estimate.md](docs/combinator-estimate.md).
+
 ## What works
 
 ```

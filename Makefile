@@ -50,5 +50,6 @@ testkinds: ; $(MHS) $(KERNEL) TestKinds -obin/testkinds
 m0:        ; $(MHS) M0 -obin/m0
 testtok:   ; $(MHS) -Icbits cbits/tokparse.c TestTok -obin/testtok
 showcase:  ; $(MHS) $(KERNEL) Showcase -obin/showcase
+estimate:  ; $(MHS) Estimate -obin/estimate
 
 clean: ; rm -f bin/m0 bin/m1 bin/m2 bin/m3 bin/m4 bin/testkinds bin/testtok bin/showcase
