@@ -1,0 +1,3 @@
+[submodule "vendor/microhs"]
+	path = vendor/microhs
+	url = https://github.com/augustss/MicroHs.git
