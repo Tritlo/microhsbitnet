@@ -80,7 +80,7 @@ assistant: 2 + 2 = 4, so 3 times 4 equals 12. This is a basic multiplication
 - **`bin/chat`** — an interactive multi-turn REPL; the KV cache persists across turns. Optional
   sampling (`BN_TEMP`, `BN_TOPP`, `BN_TOPK`, `BN_SEED`); greedy by default.
 
-Both run a real 2.4-billion-parameter model in **~4 seconds** to a short reply, in **~1.2–2 GB**
+Both run a real 2.4-billion-parameter model in **~3 seconds** to a short reply, in **~2 GB**
 of RAM, on a desktop CPU.
 
 ## The ladder (M0 → M4), validated against an oracle
@@ -101,7 +101,7 @@ the oracle-validated reference.
 
 ## The performance journey
 
-A short reply went from **6 minutes** to **~4 seconds** without ever changing the output —
+A short reply went from **6 minutes** to **~3 seconds** without ever changing the output —
 each step validated against the same fixed result (`Hello! → "Hello! How can I assist you today?"`):
 
 | step | M4 wall-clock | what changed |
@@ -111,10 +111,11 @@ each step validated against the same fixed result (`Hello! → "Hello! How can I
 | batched dots + AVX2 + OpenMP | 4:49 | one call per *whole* matmul / 128 K-vocab argmax; vectorized + threaded |
 | **per-token math in C** | 0:37 | RMSNorm/RoPE/attention/MLP/residuals on float32 buffers |
 | **C tokenizer parser** | 0:15 | `tokenizer.json` parsed in C (27 s → 0.04 s) instead of as a 16 M-char Haskell `String` |
-| norm-decode in C + heap tuning | **~0:04** | bf16→f32 weight setup in C (11.6 s → 0.9 s); runs on the default heap |
+| norm-decode in C + heap tuning | **~0:03** | bf16→f32 weight setup in C (11.6 s → 0.9 s); runs on the default heap |
 
-Current breakdown (`bin/m4` prints it): model load ~0.9 s · tokenizer 0.04 s · weight setup ~0.9 s
-· prefill ~1.1 s · generation ~108 ms/token.
+Current breakdown (`bin/m4` prints it): model load ~0.8 s · tokenizer 0.03 s · layer build ~0.65 s
+· prefill ~0.6 s · generation ~74 ms/token — **~3.0 s** total on MicroHs v0.16.5 (the toolchain bump
+from v0.16.3 shaved ~12 % off prefill + the per-token glue; the C kernels were unchanged).
 
 ## Meaning in Haskell, execution in C
 
