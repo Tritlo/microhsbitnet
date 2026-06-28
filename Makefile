@@ -1,7 +1,9 @@
 # Build the BitNet-b1.58-in-MicroHaskell demos.
 #
-# Needs a MicroHs install (stock — no patch, no fork): point GMHS at its gmhs, or
-# have ~/Code/MicroHs/bin/gmhs. gmhs auto-detects its own lib + runtime. The
+# Needs a recent stock MicroHs (≥ v0.16.5 — the one pinned in vendor/microhs; the
+# (**) FFI fix landed there, so an older gmhs binary mis-links pow/powf). Point
+# GMHS at its gmhs, or have ~/Code/MicroHs/bin/gmhs — and make sure that binary
+# was rebuilt from the current source. gmhs auto-detects its own lib + runtime. The
 # fast-path dot is the C kernel cbits/bndot.c, linked via FFI (plain
 # `foreign import ccall`); its OpenMP + AVX2 flags go straight to cc with
 # -optc/-optl. Modules that import Dot need the kernel; the rest don't.
