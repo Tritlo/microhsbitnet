@@ -215,8 +215,8 @@ data LayerC = LayerC
   }
 
 -- | One layer's KV cache for the C path: the RoPE'd keys and the values for all
--- positions so far, each a contiguous float32 buffer. 'Nothing' before any token
--- (MicroHs has no usable empty ByteString), so the first key/value seeds it.
+-- positions so far, each a contiguous float32 buffer. 'Nothing' before any token,
+-- so the first key/value seeds the cache.
 type KVC = Maybe (BS.ByteString, BS.ByteString)
 
 -- | Apply a BitLinear to a float32 activation buffer, in C (fused quantize +

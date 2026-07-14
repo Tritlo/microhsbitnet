@@ -16,8 +16,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **M0 — safetensors loader** (`src/Safetensors.hs`, `src/M0.hs`): minimal JSON header parser,
   bf16→Float decode, and packed ternary unpack. Loads the full 1.18 GB data section resident in
   ~2 s and is verified bit-identical to a numpy oracle (`test/oracle_m0.py`) on bf16 values,
-  scales, and trits (incl. a strided row). Documents MicroHs IO gotchas (`gmhs`, broken
-  `BS.empty`/`concat`/`readFile`, no `hSeek`/`hFileSize`).
+  scales, and trits (incl. a strided row). Documents MicroHs IO gotchas (`gmhs`; no
+  `hSeek`/`hFileSize`; and a zero-length-`ByteString` OOM in `BS.empty`/`concat`/`readFile`
+  on the MicroHs of the day, since fixed upstream by the zero-size-`malloc` guard `4b616112`).
 - **M1 — list-op BitLinear** (`src/BitLinear.hs`, `src/Loader.hs`, `src/M1.hs`): int8 activation
   quant (per-token absmax), the two-bucket trit fold (`+1`→pos, `-1`→neg, `0`→drop, value
   `pos−neg` — no negate/multiply in the matmul), and rescale. A real layer-0 q_proj forward

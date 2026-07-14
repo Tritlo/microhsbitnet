@@ -1,9 +1,12 @@
 -- | Shared model loading: read a safetensors file's header and full data section
 -- into one resident ByteString, and slice tensors out of it.
 --
--- Works around MicroHs base bugs: builds with @gmhs@; never touches
--- @BS.empty@\/@concat@\/@readFile@ (all hang); reads with fixed-count @hGet@ and
--- combines chunks by seeding with the first read and appending non-empty chunks.
+-- Built with @gmhs@. Read sequentially with fixed-count @hGet@ (header length,
+-- then header, then the data section) because MicroHs has no @hSeek@\/@hFileSize@
+-- for random access; @hGetN@ accumulates bounded chunks so a single read needn't
+-- size the whole file. (@BS.empty@\/@concat@\/@readFile@ once OOM'd on the
+-- empty-ByteString path in older MicroHs — fixed upstream in @4b616112@ — so this
+-- no longer routes around them.)
 module Loader
   ( loadModel
   , slice
