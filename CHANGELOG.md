@@ -30,6 +30,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Verified on the real `blk.0.attn_qkv` (5120→10240) against `test/oracle_m1.py`: spot rows
   float-identical, full-output sum to 3e-6, embedding row exact. (The oracle's vectorized
   check initially "failed" — a numpy `uint8` wraparound in `bits*2-1`, not a kernel bug.)
+- **M2 — qwen35 tokenizer** (`cbits/tokparse.c`, `src/Tokenizer.hs`, `src/TestTok.hs`): the
+  C tables (sorted vocab / merge-rank / decode) now build straight from the GGUF metadata
+  arrays — no JSON anywhere; decode keeps control/user-defined tokens literal. The Haskell
+  pre-tokenizer implements the qwen35 regex faithfully (all seven alternation branches,
+  real Unicode classes via MicroHs `Data.Char`), and BPE drops the `ignore_merges` shortcut
+  (qwen35 leaves it off, unlike llama3). All 27 corpus cases in `test/tok-cases.txt` —
+  CJK, emoji + skin tones, Icelandic, contractions, whitespace/newline runs — match the
+  fork's `llama-tokenize --ids` exactly (`test/oracle_m2.py`), round-trips included.
 
 ## [Unreleased]
 

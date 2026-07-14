@@ -1,0 +1,28 @@
+Hello world
+Hello, world!
+The capital of Iceland is Reykjavik.
+  leading spaces and   runs
+trailing spaces
+I'm sure you're right, they'll say it's fine — isn't it?
+I'M SURE YOU'RE RIGHT, THEY'LL SAY IT'S FINE
+x = (a + b) * 42 / 3.14159;
+1234567890
+one1two22three333
+line one\nline two\n\nline four
+windows\r\nline
+mixed   \n  \t whitespace\n\t\n
+def f(x):\n    return x**2  # comment\n
+émigré café naïve Zürich København
+Þetta er íslenska: Matthías Páll Gissurarson á Íslandi
+日本語のテキストです。中文文本。한국어 텍스트
+🙂 emoji 🚀🔥 and 👍🏽 skin tone
+https://example.com/path?q=1&x=2#frag
+JSON: {"key": "value", "n": [1, 2, 3]}
+
+a
+ a
+  a b  c   d
+<|im_start|>user literal special text<|im_end|>
+tab	inside and unicode  spaces
+ﬁ ligature ﬂow — em—dash … ellipsis
+combining: é? café

@@ -36,9 +36,10 @@ $(MODEL):
 # Fast path (import Dot -> link the b1dot kernel). Grows as milestones land.
 fast: m1
 # No fast path.
-plain: m0
+plain: m0 testtok
 
 m0: ; $(MHS) M0 -obin/m0
 m1: ; $(MHS) $(KERNEL) M1 -obin/m1
+testtok: ; $(MHS) -Icbits cbits/tokparse.c TestTok -obin/testtok
 
-clean: ; rm -f bin/m0 bin/m1
+clean: ; rm -f bin/m0 bin/m1 bin/testtok
