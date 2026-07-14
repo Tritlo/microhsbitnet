@@ -1,159 +1,125 @@
-# BitNetComb — BitNet b1.58 in MicroHaskell, where ternary weights are list operations
+# BitNetComb — 1-bit Bonsai 27B in MicroHaskell, where binary weights are subset selection
 
-Run [Microsoft's BitNet b1.58 2B4T](https://huggingface.co/microsoft/bitnet-b1.58-2B-4T)
-language model end-to-end in **[MicroHs](https://github.com/augustss/MicroHs)** — Lennart
-Augustsson's combinator-graph Haskell — with no Python at runtime. Tokenizer, 30-layer
-transformer, KV-cached generation, detokenizer: all MicroHaskell, accelerated by a small,
-focused C core.
+Run [PrismML's 1-bit Bonsai 27B](https://huggingface.co/prism-ml/Bonsai-27B-gguf) — a
+binary re-expression of Qwen3.6-27B, 3.8 GB of weights at 1.125 bits each — end-to-end in
+**[MicroHs](https://github.com/augustss/MicroHs)**, Lennart Augustsson's combinator-graph
+Haskell, with no Python at runtime. GGUF loader, qwen35 tokenizer, the 64-block hybrid
+decoder (48 gated-delta-net layers + 16 full-attention layers), generation: all
+MicroHaskell, accelerated by a small, focused C core.
 
-The conceit: BitNet's weights are **ternary** — every weight is `-1`, `0`, or `+1`. So a weight
-is not a number to multiply by; it is a **list operation** on an activation:
-
-```
-+1  =  identity   (keep it)
- 0  =  drop       (throw it away)
--1  =  negate     (flip its sign)
-```
-
-A dot product of a ternary row with an activation vector is therefore a *fold*, not a sum of
-products:
+The conceit (inherited from the ternary BitNet ancestor on `main`, and sharpened): a 1-bit
+weight is not a number to multiply by — it is a **Church boolean**. A weight bit names
+*include* or *exclude*, and a dot product of a binary row with an activation vector is
+**subset selection**:
 
 ```
-[x1, x2, x3]  ·  [-1, 0, +1]   =   -x1 + x3        -- negate, drop, identity
+w · x  =  scale · ( 2·Σ selected xᵢ  −  Σ all xᵢ )
 ```
 
-No multiplications appear in the matmul — only routing each activation into a `+` or `-` bucket
-(`pos - neg` at the end). `src/BitLinear.hs` is that idea as code (`dotTrits`), and
-`src/Showcase.hs` renders a real weight row as the **combinators** it generates — `+1 = I`,
-`0 = K`, `-1 = C·P` (negation as a difference pair) — and even as **iota trees** (`ι = λf. f S K`).
-The list-op formulation is the *meaning* of the program; everything else is making it run.
-
-Taken to its conclusion, the showcase counts every ternary weight in the real model and reports
-what the *whole* model is as combinators (computed, not materialized):
-
-```
-2,084,044,800 ternary weights   (42.2% drop, 28.8% identity, 28.8% negate)
-  as pure S/K/I combinators:   22,557,610,090   (~22.6 billion)
-  as iota (ι) trees:           98,058,519,993   (~98 billion)
-```
-
-A 2.4-billion-parameter language model is **~22.6 billion `S`/`K`/`I` combinators** — or, in the
-single-combinator iota basis, **~98 billion `ι` nodes**. Run `./bin/showcase` to see it.
-
-And that's just the *ternary* part. The **whole program** — the code, the bf16 **embeddings**, and
-the tokenizer — compiled to one self-contained pure combinator term (no primitives; numbers as
-Church numerals; `./bin/estimate`):
-
-| component (int8-quantized) | combinators | iotas |
-|---|---:|---:|
-| code (forward, attention, RoPE, softmax, BPE, sampling) | 52,157 | ~0.5 M |
-| ternary weights (list-ops) | 22.56 B | 98.06 B |
-| int8 embeddings | 34.84 B | 159.22 B |
-| int8 norms / scales | 0.14 B | 0.62 B |
-| tokenizer strings | 2.13 B | 9.77 B |
-| **TOTAL** | **≈ 59.7 B** | **≈ 267.7 B** |
-
-The *code* — the entire algorithm — is **52 K** combinators, a rounding error; the program is
-~99.9999 % data. As shipped (bf16 embeddings) it's ~**53 trillion** combinators; quantized to int8
-it drops ~900× to ~60 billion, and the elegant ternary core finally shows through. Full accounting
-and assumptions in [docs/combinator-estimate.md](docs/combinator-estimate.md).
+The `Σ all` correction is paid once per row; each weight is pure selection — `K` or `K I`,
+the two simplest combinators there are. Where the ternary encoding paid 35 combinator
+leaves for every `−1` (28.8 % of the weights!), the binary model costs **~1 leaf per stored
+bit**: the unfolded combinator term sits within a whisker of the model's Shannon size, and
+the tokenizer overtakes the entire neural network as the biggest term. (`main` keeps the full
+ternary accounting.)
 
 ## What works
 
 ```
-$ ./bin/m4 "Hello!"
+$ ./bin/chat "What is the capital of Iceland?"
+<think>
 ...
-Hello! How can I assist you today?
+</think>
+The capital of Iceland is **Reykjavík**. ...
 
-$ ./bin/chat
-user: What is 2+2?
-assistant: 2 + 2 equals 4. A simple arithmetic operation, but it's a fundamental
-           building block for more complex calculations...
-user: And times 3?
-assistant: 2 + 2 = 4, so 3 times 4 equals 12. This is a basic multiplication
-           operation...
+$ BN_RAW=1 ./bin/chat "The capital of Iceland is" 32
+<think>
+
+</think>
+
+The capital of Iceland is **Reykjavík**.
+
+It is located on the southwestern coast of the island and serves as the country
 ```
 
-(The second turn reuses the first turn's KV cache — it remembers "2 + 2 = 4".)
+That second output is **byte-identical** to the prism llama.cpp fork's own CPU output
+(`llama-completion -no-cnv --temp 0`) for all 32 greedy tokens — same kernels' float
+semantics, same tokenizer, same delta-rule recurrence, reimplemented from source.
 
-- **`bin/m4`** — one-shot: a prompt string in, generated text out, with phase timings.
-- **`bin/chat`** — an interactive multi-turn REPL; the KV cache persists across turns. Optional
+- **`bin/chat PROMPT [NGEN]`** — single-turn ChatML with the model's `<think>` prefix
+  (the template the model was trained with); `BN_RAW=1` for raw completion. Optional
   sampling (`BN_TEMP`, `BN_TOPP`, `BN_TOPK`, `BN_SEED`); greedy by default.
 
-Both run a real 2.4-billion-parameter model in **~3 seconds** to a short reply, in **~2 GB**
-of RAM, on a desktop CPU.
+A **27-billion-parameter** hybrid-attention model runs at **~0.5 s/token** in ~11.4 GB of
+RAM on a desktop CPU. (The fork's hand-tuned C++ does ~55 ms/token on the same machine —
+a fair price for a decoder you can read.)
 
-## The ladder (M0 → M4), validated against an oracle
-
-The model was built in stages, each checked bit-for-bit (or to float precision) against an HF
-`transformers` reference (`test/oracle_*.py`, a *test-time-only* Python dependency):
+## The ladder (M0 → M5), validated against an oracle at every rung
 
 | stage | what | check |
 |---|---|---|
-| **M0** | safetensors loader, bf16 + packed-ternary decode | numpy oracle, bit-exact |
-| **M1** | one list-op `BitLinear` (the two-bucket fold) | integer dots bit-exact |
-| **M2** | one full decoder block (RMSNorm, RoPE, GQA, squared-ReLU MLP) | HF oracle, ~5–6 sig figs |
-| **M3** | the full 30-layer forward + tied LM head | argmax token matches HF |
-| **M4** | greedy generation with a KV cache | matches HF generation token-for-token |
+| **M0** | GGUF v3 loader (one resident 3.8 GB ByteString) | fork gguf-py + numpy, bit-exact |
+| **M1** | fused Q1_0 B1Linear (q8 quant + bit-select dot) | numpy oracle, spot rows float-identical |
+| **M2** | qwen35 byte-level BPE from the GGUF arrays | `llama-tokenize --ids`, 27/27 cases exact |
+| **M3** | full-attention block (Q+gate, QK-norm, IMROPE, GQA, σ-gate) | ggml rope oracle (2.4e-7) + numpy |
+| **M4** | gated-delta-net block (conv ring, L2 q/k, delta rule) | numpy oracle from pinned fork semantics |
+| **M5** | 64-block forward + Q1_0 LM head + generation | **byte-identical greedy parity with the fork** |
 
-The Haskell decoder (`src/Model.hs`, `src/Forward.hs`) is the **readable specification** and stays
-the oracle-validated reference.
-
-## The performance journey
-
-A short reply went from **6 minutes** to **~3 seconds** without ever changing the output —
-each step validated against the same fixed result (`Hello! → "Hello! How can I assist you today?"`):
-
-| step | M4 wall-clock | what changed |
-|---|---|---|
-| pure combinator runtime | ~hours | every dot is graph reduction (~10 s per BitLinear) |
-| `bndot` runtime primitive → **FFI C kernel** | 6:10 | the inner dot runs in C (`foreign import ccall`, no runtime patch) |
-| batched dots + AVX2 + OpenMP | 4:49 | one call per *whole* matmul / 128 K-vocab argmax; vectorized + threaded |
-| **per-token math in C** | 0:37 | RMSNorm/RoPE/attention/MLP/residuals on float32 buffers |
-| **C tokenizer parser** | 0:15 | `tokenizer.json` parsed in C (27 s → 0.04 s) instead of as a 16 M-char Haskell `String` |
-| norm-decode in C + heap tuning | **~0:03** | bf16→f32 weight setup in C (11.6 s → 0.9 s); runs on the default heap |
-
-Current breakdown (`bin/m4` prints it): model load ~0.8 s · tokenizer 0.03 s · layer build ~0.65 s
-· prefill ~0.6 s · generation ~74 ms/token — **~3.0 s** total on MicroHs v0.16.5 (the toolchain bump
-from v0.16.3 shaved ~12 % off prefill + the per-token glue; the C kernels were unchanged).
+The three architecture risks were resolved *from the fork's source*, not guessed:
+IMROPE with equal text positions reduces exactly to neox over 64 dims
+(`test/rope_oracle.c` drives the fork's own `ggml_rope_multi`); `ssm_conv` pairs kernel
+coefficient *r* with window position *r*, oldest first; `l2_norm` is
+`x / max(√Σx², eps)` with a double accumulator.
 
 ## Meaning in Haskell, execution in C
 
-The guiding split: **MicroHaskell defines the meaning; C executes the hot
-folds and vector steps.**
+- **Haskell** (`src/`) holds the meaning: the GGUF header parser, the qwen35 pre-tokenizer
+  regex (real Unicode classes) and BPE merge loop, the hybrid decoder skeleton
+  (`Model.hs`/`Forward.hs` — pure state threading of KV caches, conv rings, and 48
+  delta-rule states), the ChatML template, the sampling policy.
+- **C** (`cbits/b1dot.c`, `cbits/tokparse.c`) executes the hot folds: the Q1_0 select-dot
+  (an AVX2 port of the fork's own kernel, so numerics match what the fork actually runs),
+  the delta-rule step (48 heads × 128×128 state), conv/norms/attention/elementwise ops on
+  f32 buffers, and the vocab/merge tables. Plain `foreign import ccall` —
+  **stock MicroHs, no runtime fork**.
 
-- **Haskell** keeps the list-op spec (`dotTrits`/`dotRow`), the oracle-validated decoder (M2/M3),
-  the BPE pre-tokenizer + merge loop, the sampling *policy*, and the combinator showcase.
-- **C** (`cbits/bndot.c`, `cbits/tokparse.c`, ~630 lines total) is the executor: the ternary
-  matmul (AVX2 `sign_epi8` trick — bit-exact, it's integer), the bf16/f32 dots, the per-token
-  vector math, the top-K head, and the `tokenizer.json` parser. It is called by plain
-  `foreign import ccall` — **stock MicroHs, no runtime fork**.
+## MicroHs land mines (found the hard way)
 
-About a **quarter** of the code is C; the other ~74 % — including everything that says what the
-model *is* — is MicroHaskell.
+- The runtime narrows ByteString **substring offsets to a C int** (`addForPtr`): slicing a
+  3.8 GB ByteString past 2 GiB wraps the pointer and segfaults. Weights are therefore
+  `(file, offset)` handles resolved with 64-bit pointer arithmetic at the FFI boundary,
+  never substring views. (Upstream-report candidate; `BS.index` is 64-bit clean.)
+- **`BS.putStr` re-encodes bytes >127 as UTF-8 characters** — mojibake for bytes that are
+  already UTF-8. Token streaming goes through a C `fwrite`.
+- A 744 K-element lazy offset chain (skipping the tokenizer arrays) overflows the stack —
+  the GGUF walker is `seq`-strict.
+- No `hSeek`/`hFileSize` (known from the ternary project): the loader reads the whole file
+  sequentially in bounded chunks.
 
 ## Build & run
 
-Needs a stock [MicroHs](https://github.com/augustss/MicroHs) (`gmhs` on `PATH` or at
-`~/Code/MicroHs` — set `GMHS` to override). `make` bootstraps the rest from a fresh clone: it
-inits the pinned-MicroHs submodule (`vendor/microhs/`, documentary — the build uses your installed
-`gmhs`) and fetches the model weights + tokenizer (~1.2 GB, only if missing), then builds.
+Needs a stock [MicroHs](https://github.com/augustss/MicroHs) (`gmhs` at `~/Code/MicroHs`
+or set `GMHS`). `make` bootstraps from a fresh clone: inits the pinned-MicroHs submodule
+(documentary), fetches the 3.8 GB GGUF from Hugging Face if missing, builds everything.
 
 ```
-make            # init submodule + fetch model (if missing) + build everything
-./bin/m4 "Your prompt here" 32          # one-shot, 32 tokens
-./bin/chat "You are a terse assistant"  # REPL with an optional system prompt
-BN_TEMP=0.8 ./bin/chat                  # sample instead of greedy
-BNDOT_THREADS=8 ./bin/m4                # set the thread count (default 12)
-./bin/showcase                          # render a weight row as combinators / iota trees
-make testkinds testtok                  # unit checks (kernels, tokenizer)
+make                                     # submodule + model + build
+./bin/chat "Your question" 128           # ChatML + <think>, 128 tokens
+BN_RAW=1 ./bin/chat "Once upon" 64       # raw completion (the parity mode)
+BN_TEMP=0.8 BN_SEED=42 ./bin/chat "Hi"   # sample (top-k 20 / top-p 0.95 defaults)
+BNDOT_THREADS=20 ./bin/chat ...          # kernel threads (default 12)
+make m0 m1 m3 m4 testtok                 # the milestone drivers + tokenizer check
 ```
+
+The oracles (`test/oracle_m*.py`, `test/rope_oracle.c`) validate against the prism
+llama.cpp fork at `~/Code/llama.cpp-prism` (set `PRISM_LLAMA`) — test-time only, never at
+runtime.
 
 ## Layout
 
-- `src/` — the MicroHaskell: `BitLinear` (the list-op spec), `Model`/`Forward` (the decoder),
-  `Tokenizer`/`Sample` (BPE + sampling policy), `Dot` (the FFI bindings), `Showcase`, the `M0`–`M4`
-  drivers, `Chat`.
-- `cbits/` — the C executor: `bndot.c` (math kernels), `tokparse.c` (tokenizer parser).
-- `PLAN.md`, `CONTEXT.md`, `CHANGELOG.md` — the staged plan, the glossary, and the full history.
-- `test/` — Python oracles, used only to validate, never at runtime.
+- `src/` — `Gguf`/`Loader` (the file), `Dot` (FFI), `Tokenizer`/`Sample`,
+  `Model`/`Forward` (the decoder), `Chat`, `M0`–`M4` milestone drivers, `TestTok`.
+- `cbits/` — `b1dot.c` (kernels), `tokparse.c` (tokenizer tables + byte output).
+- `docs/combinator-estimate.md` — the ternary-era accounting that the 1-bit thesis sharpens.
+- `PLAN.md`, `CONTEXT.md`, `CHANGELOG.md` — the staged plan, the glossary, the history.
+- `test/` — the oracles and the checked-in GGUF ground-truth dumps.

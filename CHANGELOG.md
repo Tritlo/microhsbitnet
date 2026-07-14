@@ -71,6 +71,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   arithmetic at the FFI boundary (upstream-report candidate); (2) `BS.putStr` re-encodes
   bytes >127 as UTF-8 (mojibake for model bytes) — streaming output goes through a C
   `fwrite` (`b1tok_write`).
+- **M6 — perf pass**: `b1_row` gains an AVX2 path ported from the fork's own
+  `ggml_vec_dot_q1_0_q8_0` (byte-mask bit expansion + xor-negate + `maddubs`, 8-lane FMA
+  accumulation per row) with the generic-reference scalar under `#else`; last-ULP shifts vs
+  the scalar oracle are expected — the numerics now match what the fork actually runs, and
+  the 32-token greedy parity stays **byte-identical**. ~1.0 → **~0.48 s/token**; thread
+  sweep 12/16/20 flat (memory-bound), default stays 12. README rewritten for the 1-bit
+  branch (selection thesis, parity story, MicroHs land mines, new build/run).
 
 ## [Unreleased]
 

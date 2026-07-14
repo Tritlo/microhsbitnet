@@ -18,6 +18,10 @@
 #include <stdlib.h>
 #include <math.h>
 
+#if defined(__AVX2__)
+#include <immintrin.h>
+#endif
+
 /* Thread count: BNDOT_THREADS env (default 12), read once. */
 static int bn_threads(void) {
   static int t = 0;
@@ -95,7 +99,60 @@ static void quant_q8(const float *x, int n, signed char *qs, float *sc) {
 }
 
 /* One Q1_0 row dot against pre-quantized activations: bit set -> +a, clear ->
- * -a. Accumulation order matches ggml_vec_dot_q1_0_q8_0_generic. */
+ * -a. The AVX2 path mirrors the fork's ggml_vec_dot_q1_0_q8_0 (arch/x86)
+ * exactly — 8-lane FMA accumulation over blocks, horizontal sum once per row —
+ * so numerics match what the fork actually runs on this machine; the scalar
+ * fallback matches its generic reference. */
+#if defined(__AVX2__)
+static inline float hsum_float_8(__m256 x) {
+  __m128 res = _mm256_extractf128_ps(x, 1);
+  res = _mm_add_ps(res, _mm256_castps256_ps128(x));
+  res = _mm_add_ps(res, _mm_movehl_ps(res, res));
+  res = _mm_add_ss(res, _mm_movehdup_ps(res));
+  return _mm_cvtss_f32(res);
+}
+
+static float b1_row(const unsigned char *w, const signed char *a, const float *sc, int n) {
+  const int nb = n / 128;
+  const __m256i ones_8 = _mm256_set1_epi8(1);
+  const __m256i ones_16 = _mm256_set1_epi16(1);
+  const __m256i byte_shuf = _mm256_setr_epi8(
+      0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1,
+      2, 2, 2, 2, 2, 2, 2, 2, 3, 3, 3, 3, 3, 3, 3, 3);
+  const __m256i bit_masks = _mm256_setr_epi8(
+      1, 2, 4, 8, 16, 32, 64, (char) -128, 1, 2, 4, 8, 16, 32, 64, (char) -128,
+      1, 2, 4, 8, 16, 32, 64, (char) -128, 1, 2, 4, 8, 16, 32, 64, (char) -128);
+  const __m256i zero = _mm256_setzero_si256();
+  __m256 acc = _mm256_setzero_ps();
+
+  for (int ib = 0; ib < nb; ++ib) {
+    const unsigned char *blk = w + 18 * ib;
+    const float d0 = f16_at(blk);
+    uint32_t qs32[4];
+    memcpy(qs32, blk + 2, 16);
+
+    __m256 acc_block;
+    {
+      const __m256i qy = _mm256_loadu_si256((const __m256i *)(a + ib * 128));
+      const __m256i sm = _mm256_cmpeq_epi8(
+          _mm256_and_si256(_mm256_shuffle_epi8(_mm256_set1_epi32((int) qs32[0]), byte_shuf), bit_masks), zero);
+      const __m256i sy = _mm256_sub_epi8(_mm256_xor_si256(qy, sm), sm);
+      const __m256i s32 = _mm256_madd_epi16(_mm256_maddubs_epi16(ones_8, sy), ones_16);
+      acc_block = _mm256_mul_ps(_mm256_set1_ps(sc[ib * 4]), _mm256_cvtepi32_ps(s32));
+    }
+    for (int K = 1; K < 4; ++K) {
+      const __m256i qy = _mm256_loadu_si256((const __m256i *)(a + ib * 128 + K * 32));
+      const __m256i sm = _mm256_cmpeq_epi8(
+          _mm256_and_si256(_mm256_shuffle_epi8(_mm256_set1_epi32((int) qs32[K]), byte_shuf), bit_masks), zero);
+      const __m256i sy = _mm256_sub_epi8(_mm256_xor_si256(qy, sm), sm);
+      const __m256i s32 = _mm256_madd_epi16(_mm256_maddubs_epi16(ones_8, sy), ones_16);
+      acc_block = _mm256_fmadd_ps(_mm256_set1_ps(sc[ib * 4 + K]), _mm256_cvtepi32_ps(s32), acc_block);
+    }
+    acc = _mm256_fmadd_ps(_mm256_set1_ps(d0), acc_block, acc);
+  }
+  return hsum_float_8(acc);
+}
+#else
 static float b1_row(const unsigned char *w, const signed char *a, const float *sc, int n) {
   int nb = n / 128;
   float sumf = 0.0f;
@@ -124,6 +181,7 @@ static float b1_row(const unsigned char *w, const signed char *a, const float *s
   }
   return sumf;
 }
+#endif
 
 /* A full B1Linear, fused: quantize the f32 activations once, then outDim row
  * dots of the Q1_0 weight (row-major, inDim/128 blocks per row). */
