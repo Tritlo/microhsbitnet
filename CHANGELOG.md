@@ -14,6 +14,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   hybrid-architecture facts from the prism llama.cpp fork @ `62061f91`), rewritten `CONTEXT.md`
   (selection interpretation, B1Linear, GDN, W1A8). GGUF ground-truth dumps in
   `test/bonsai-gguf-{kv,tensors}.txt`.
+- **M0 — GGUF loader** (`src/Gguf.hs`, `src/Loader.hs`, `src/M0.hs`): GGUF v3 header parser
+  (typed KVs, tensor table, alignment-padded data section) over one resident ByteString of the
+  whole 3.8 GB file (~18 s load, sequential fixed-count reads as before). Large arrays
+  (tokenizer vocab/merges) are kept as raw (type, count, offset) slices, not materialized —
+  the offset walk is `seq`-strict (a 744 K-element lazy skip chain overflowed the stack).
+  Q1_0/f16/f32 spot decoders. Verified against `test/oracle_m0.py` (fork gguf-py + numpy):
+  offsets, shapes, F32 values, Q1_0 signs and group scales all match. The ternary-path
+  modules, oracles, and Makefile targets are deleted; `make` now fetches the Bonsai GGUF.
 
 ## [Unreleased]
 

@@ -1,0 +1,184 @@
+diff --git a/lib/System/IO.hs b/lib/System/IO.hs
+index 523c9752..8c31690e 100644
+--- a/lib/System/IO.hs
++++ b/lib/System/IO.hs
+@@ -17,6 +17,9 @@ module System.IO(
+   hIsReadable,
+   hIsWritable,
+   hIsSeekable,
++  hSeek,
++  hTell,
++  hFileSize,
+   hIsTerminalDevice,
+   hGetEcho,
+   hSetEcho,
+@@ -34,7 +37,10 @@ import Mhs.Builtin
+ import System.IO.Base
+ import System.IO.Error
+ import System.IO.Unsafe(unsafeInterleaveIO)
++import System.IO.Internal(withHandleAny)
+ import System.IO_Handle
++import Data.Integer(Integer)
++import Foreign.Ptr(Ptr)
+ import Text.Read
+ 
+ readLn :: Read a => IO a
+@@ -162,9 +168,42 @@ hIsWritable (Handle _ r _) = do
+       HReadWrite -> True
+       _ -> False
+ 
+--- XXX This currently does nothing.
++-- | Whether the handle supports seeking.  Probes the underlying stream
++-- (regular files and in-memory buffers are seekable; pipes/terminals are not).
+ hIsSeekable :: Handle -> IO Bool
+-hIsSeekable _ = return False
++hIsSeekable h = withHandleAny h $ \ p -> (/= (0 :: Int)) <$> c_seekableb p
++
++foreign import ccall "seekb"     c_seekb     :: Ptr BFILE -> Int -> Int -> IO ()
++foreign import ccall "tellb"     c_tellb     :: Ptr BFILE -> IO Int
++foreign import ccall "seekableb" c_seekableb :: Ptr BFILE -> IO Int
++
++-- Run an action on a handle's stream, raising an @IllegalOperation@ IOError
++-- (catchable) rather than aborting if the handle is not seekable.
++withSeekable :: forall a . String -> Handle -> (Ptr BFILE -> IO a) -> IO a
++withSeekable loc h act = withHandleAny h $ \ p -> do
++  ok <- c_seekableb p
++  if ok == (0 :: Int)
++    then ioError (mkIOError illegalOperationErrorType loc (Just h) Nothing)
++    else act p
++
++-- | Set the byte position of a handle.  @SeekMode@ selects absolute, relative,
++-- or from-the-end positioning.  Raises an @IllegalOperation@ error if the
++-- handle is not seekable.
++hSeek :: Handle -> SeekMode -> Integer -> IO ()
++hSeek h mode pos = withSeekable "hSeek" h $ \ p -> c_seekb p (fromInteger pos) (fromEnum mode)
++
++-- | The current byte position of a handle.
++hTell :: Handle -> IO Integer
++hTell h = withSeekable "hTell" h $ \ p -> toInteger <$> c_tellb p
++
++-- | The size, in bytes, of the file behind a handle.
++hFileSize :: Handle -> IO Integer
++hFileSize h = withSeekable "hFileSize" h $ \ p -> do
++  cur <- c_tellb p
++  c_seekb p 0 (fromEnum SeekFromEnd)
++  sz <- c_tellb p
++  c_seekb p cur (fromEnum AbsoluteSeek)
++  return (toInteger sz)
+ 
+ -- XXX This currently does nothing.
+ hGetEcho :: Handle -> IO Bool
+diff --git a/src/MicroHs/FFI.hs b/src/MicroHs/FFI.hs
+index 44048db9..c8a072a6 100644
+--- a/src/MicroHs/FFI.hs
++++ b/src/MicroHs/FFI.hs
+@@ -261,7 +261,7 @@ runtimeFFI = [
+   "acosf", "asinf", "atanf", "atan2f", "cosf", "expf", "logf", "sinf", "sqrtf", "tanf",
+   "scalbn", "scalbnf", "pow", "powf",
+   "js_debug", "js_eval_run", "js_eval_call", "js_set_haskellCallback",
+-  "readb", "writeb",
++  "readb", "writeb", "seekb", "tellb", "seekableb",
+   "peekPtr", "pokePtr", "pokeWord", "peekWord",
+   "add_lz77_compressor", "add_lz77_decompressor",
+   "add_lzma_compressor", "add_lzma_decompressor",
+diff --git a/src/runtime/bfile.c b/src/runtime/bfile.c
+index 8e3d11ff..7483fa67 100644
+--- a/src/runtime/bfile.c
++++ b/src/runtime/bfile.c
+@@ -1443,6 +1443,72 @@ add_buf(BFILE *file, int bufsize)
+ }
+ #endif  /* WANT_BUF */
+ 
++/***************** seek/tell *******************/
++
++/*
++ * Reposition / report / probe the byte offset of a file handle.  Only real
++ * files are seekable (the BFILE_file transducer, possibly under a utf8 layer);
++ * pipes, in-memory and compression transducers are not.  Offsets are byte
++ * offsets in the underlying file.
++ * whence: 0 = AbsoluteSeek (SEEK_SET), 1 = RelativeSeek (SEEK_CUR),
++ *         2 = SeekFromEnd (SEEK_END).
++ */
++void
++seekb(BFILE *p, value_t offset, int whence)
++{
++#if WANT_STDIO
++  if (p->getb == getb_file) {
++    int w = whence == 0 ? SEEK_SET : whence == 1 ? SEEK_CUR : SEEK_END;
++    if (fseeko(((struct BFILE_file *)p)->file, (off_t)offset, w))
++      ERR("seekb: fseeko failed");
++    return;
++  }
++#endif
++#if WANT_UTF8
++  if (p->getb == getb_utf8) {
++    struct BFILE_utf8 *u = (struct BFILE_utf8 *)p;
++    u->unget = -1;
++    seekb(u->bfile, offset, whence);
++    return;
++  }
++#endif
++  ERR("seekb: handle not seekable");
++}
++
++value_t
++tellb(BFILE *p)
++{
++#if WANT_STDIO
++  if (p->getb == getb_file)
++    return (value_t)ftello(((struct BFILE_file *)p)->file);
++#endif
++#if WANT_UTF8
++  if (p->getb == getb_utf8) {
++    struct BFILE_utf8 *u = (struct BFILE_utf8 *)p;
++    if (u->unget >= 0)
++      ERR("tellb: pending unget");
++    return tellb(u->bfile);
++  }
++#endif
++  ERR("tellb: handle not seekable");
++  return -1;
++}
++
++/* Probe whether a handle supports seeking, without disturbing its state. */
++value_t
++seekableb(BFILE *p)
++{
++#if WANT_STDIO
++  if (p->getb == getb_file)
++    return ftello(((struct BFILE_file *)p)->file) >= 0;   /* fails (ESPIPE) on pipes */
++#endif
++#if WANT_UTF8
++  if (p->getb == getb_utf8)
++    return seekableb(((struct BFILE_utf8 *)p)->bfile);
++#endif
++  return 0;
++}
++
+ /***************** BFILE that adds CR *******************/
+ 
+ #if WANT_CRLF
+diff --git a/src/runtime/eval.c b/src/runtime/eval.c
+index 3dcf7495..d2c38f2b 100644
+--- a/src/runtime/eval.c
++++ b/src/runtime/eval.c
+@@ -7510,6 +7510,9 @@ from_t mhs_openrdmem(int s) { return mhs_from_Ptr(s, 2, openb_rd_mem(mhs_to_Ptr(
+ from_t mhs_getmem(int s) { get_mem(mhs_to_Ptr(s, 0), mhs_to_Ptr(s, 1), mhs_to_Ptr(s, 2));  return mhs_from_Unit(s, 3); }
+ from_t mhs_readb(int s) { return mhs_from_Int(s, 3, readb(mhs_to_Ptr(s, 0), mhs_to_Int(s, 1), mhs_to_Ptr(s, 2))); }
+ from_t mhs_writeb(int s) { return mhs_from_Int(s, 3, writeb(mhs_to_Ptr(s, 0), mhs_to_Int(s, 1), mhs_to_Ptr(s, 2))); }
++from_t mhs_seekb(int s) { seekb(mhs_to_Ptr(s, 0), mhs_to_Int(s, 1), (int)mhs_to_Int(s, 2)); return mhs_from_Unit(s, 3); }
++from_t mhs_tellb(int s) { return mhs_from_Int(s, 1, tellb(mhs_to_Ptr(s, 0))); }
++from_t mhs_seekableb(int s) { return mhs_from_Int(s, 1, seekableb(mhs_to_Ptr(s, 0))); }
+ 
+ #if WANT_MD5
+ from_t mhs_md5Array(int s) { md5Array(mhs_to_Ptr(s, 0), mhs_to_Ptr(s, 1), mhs_to_Int(s, 2)); return mhs_from_Unit(s, 3); }
+@@ -7878,6 +7881,9 @@ const struct ffi_entry ffi_table[] = {
+   { "get_mem", 3, mhs_getmem},
+   { "readb", 3, mhs_readb},
+   { "writeb", 3, mhs_writeb},
++  { "seekb", 3, mhs_seekb},
++  { "tellb", 1, mhs_tellb},
++  { "seekableb", 1, mhs_seekableb},
+ 
+ #if WANT_MD5
+   { "md5Array", 3, mhs_md5Array},

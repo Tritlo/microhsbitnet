@@ -1,12 +1,10 @@
--- | Shared model loading: read a safetensors file's header and full data section
--- into one resident ByteString, and slice tensors out of it.
+-- | Shared model loading: read the whole GGUF file into one resident
+-- ByteString and parse its header (KVs + tensor table).
 --
--- Built with @gmhs@. Read sequentially with fixed-count @hGet@ (header length,
--- then header, then the data section) because MicroHs has no @hSeek@\/@hFileSize@
--- for random access; @hGetN@ accumulates bounded chunks so a single read needn't
--- size the whole file. (@BS.empty@\/@concat@\/@readFile@ once OOM'd on the
--- empty-ByteString path in older MicroHs — fixed upstream in @4b616112@ — so this
--- no longer routes around them.)
+-- Built with @gmhs@. Read sequentially with fixed-count @hGet@ because MicroHs
+-- has no @hSeek@\/@hFileSize@ for random access; @hGetN@ accumulates bounded
+-- chunks so a single read needn't size the whole file. The file (~3.8 GB) stays
+-- resident off the combinator heap; tensors are O(1) slices into it.
 module Loader
   ( loadModel
   , slice
@@ -14,16 +12,10 @@ module Loader
 
 import qualified Data.ByteString as BS
 import System.IO (openBinaryFile, hClose, IOMode(ReadMode), Handle)
-import Safetensors (Tensor(..), parseHeader)
+import Gguf (Gguf(..), GTensor(..), parseGguf, tensorBytes)
 
 chunkMax :: Int
 chunkMax = 1536 * 1024 * 1024
-
-leInt :: BS.ByteString -> Int -> Int
-leInt bs n = go 0 0
-  where
-    go i acc | i >= n    = acc
-             | otherwise = go (i + 1) (acc + fromIntegral (BS.index bs i) * (256 ^ i))
 
 hGetN :: Handle -> Int -> IO BS.ByteString
 hGetN h n = do
@@ -37,19 +29,17 @@ hGetN h n = do
                  if got == 0 then return acc
                              else go (k - got) (BS.append acc chunk)
 
--- | Load a safetensors file: returns its tensor table and the full data section
--- as one resident ByteString (off the combinator heap).
-loadModel :: String -> IO ([Tensor], BS.ByteString)
+-- | Load a GGUF file resident and parse it. maxBytes bounds the read (the
+-- whole file fits; pass a generous cap).
+loadModel :: String -> IO Gguf
 loadModel path = do
   h <- openBinaryFile path ReadMode
-  lenBytes <- BS.hGet h 8
-  hdrBytes <- hGetN h (leInt lenBytes 8)
-  let ts = parseHeader (map (toEnum . fromIntegral) (BS.unpack hdrBytes) :: String)
-      totalData = foldr1 max (map tEnd ts)
-  dat <- hGetN h totalData
+  bs <- hGetN h maxBytes
   hClose h
-  return (ts, dat)
+  return (parseGguf bs)
+  where
+    maxBytes = 8 * 1024 * 1024 * 1024
 
--- | A tensor's raw bytes as an O(1) view into the resident data section.
-slice :: BS.ByteString -> Tensor -> BS.ByteString
-slice dat t = BS.take (tEnd t - tBegin t) (BS.drop (tBegin t) dat)
+-- | A tensor's raw bytes as an O(1) view into the resident file.
+slice :: Gguf -> GTensor -> BS.ByteString
+slice g t = BS.take (tensorBytes t) (BS.drop (gtOff t) (gBytes g))

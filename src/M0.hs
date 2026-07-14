@@ -1,41 +1,74 @@
--- | M0 milestone driver: verify bf16 decode + ternary unpack against the loader,
--- using the resident data section. Compared bit-for-bit with test/oracle_m0.py.
+-- | M0 milestone driver: load the Bonsai GGUF, print header facts and spot
+-- values (F32 and dequantized Q1_0). Compared line-for-line with
+-- test/oracle_m0.py.
 module M0(main) where
 
 import qualified Data.ByteString as BS
-import Safetensors
-import Loader (loadModel, slice)
+import Gguf
+import Loader (loadModel)
 
 modelPath :: String
-modelPath = "models/bitnet-b1.58-2B-4T/model.safetensors"
+modelPath = "models/bonsai-27b/Bonsai-27B-Q1_0.gguf"
+
+showKV :: Gguf -> String -> String
+showKV g k = case lookupKV k g of
+  Just (GInt v)     -> show v
+  Just (GFloat v)   -> show v
+  Just (GStr v)     -> v
+  Just (GArr t n o) -> "arr(t=" ++ show t ++ ",n=" ++ show n ++ ")"
+      where _ = o
+  Nothing           -> "MISSING"
+
+tensorLine :: Gguf -> String -> String
+tensorLine g nm = case lookupTensor nm g of
+  Just t  -> nm ++ " " ++ show (gtShape t) ++ " " ++ typeName (gtType t)
+                ++ " off=" ++ show (gtOff t - gDataStart g)
+  Nothing -> nm ++ " MISSING"
 
 main :: IO ()
 main = do
-  (ts, dat) <- loadModel modelPath
-  putStrLn ("tensors: " ++ show (length ts))
-  putStrLn ("resident bytes: " ++ show (BS.length dat))
+  g <- loadModel modelPath
+  putStrLn ("bytes: " ++ show (BS.length (gBytes g)))
+  putStrLn ("kvs: " ++ show (length (gKVs g)) ++ "  tensors: " ++ show (length (gTensors g)))
+  putStrLn ("data_start: " ++ show (gDataStart g))
 
-  -- (a) bf16: embed_tokens row 0, first 5 values
-  case lookupTensor "model.embed_tokens.weight" ts of
-    Just t  -> putStrLn ("embed[0,0..4]: "
-                          ++ show [ bf16At (slice dat t) (2 * c) | c <- [0 .. 4] ])
-    Nothing -> putStrLn "embed: MISSING"
+  mapM_ (\k -> putStrLn (k ++ " = " ++ showKV g k))
+    [ "general.architecture", "qwen35.block_count", "qwen35.embedding_length"
+    , "qwen35.feed_forward_length", "qwen35.attention.head_count"
+    , "qwen35.attention.head_count_kv", "qwen35.attention.key_length"
+    , "qwen35.full_attention_interval", "qwen35.rope.dimension_count"
+    , "qwen35.rope.freq_base", "qwen35.attention.layer_norm_rms_epsilon"
+    , "qwen35.ssm.conv_kernel", "qwen35.ssm.group_count", "qwen35.ssm.inner_size"
+    , "qwen35.ssm.state_size", "qwen35.ssm.time_step_rank"
+    , "tokenizer.ggml.model", "tokenizer.ggml.pre"
+    , "tokenizer.ggml.bos_token_id", "tokenizer.ggml.eos_token_id"
+    ]
+  case lookupKV "qwen35.rope.dimension_sections" g of
+    Just v  -> putStrLn ("rope_sections = " ++ show (intArray g v))
+    Nothing -> putStrLn "rope_sections = MISSING"
+  case lookupKV "tokenizer.ggml.tokens" g of
+    Just (GArr _ n _) -> putStrLn ("n_tokens = " ++ show n)
+    _                 -> putStrLn "n_tokens = MISSING"
+  case lookupKV "tokenizer.ggml.merges" g of
+    Just (GArr _ n _) -> putStrLn ("n_merges = " ++ show n)
+    _                 -> putStrLn "n_merges = MISSING"
 
-  -- (b) bf16: a weight scale (scalar)
-  case lookupTensor "model.layers.0.self_attn.q_proj.weight_scale" ts of
-    Just t  -> putStrLn ("q_proj.weight_scale: " ++ show (bf16At (slice dat t) 0))
-    Nothing -> putStrLn "scale: MISSING"
+  mapM_ (putStrLn . tensorLine g)
+    [ "token_embd.weight", "output.weight", "output_norm.weight"
+    , "blk.0.attn_qkv.weight", "blk.0.ssm_conv1d.weight", "blk.3.attn_q.weight" ]
 
-  -- (c) U8 unpack: q_proj weight; first 16 trits of rows 0 and 700 (700 exercises
-  --     the out-dim stride), and that row 0 is fully ternary.
-  case lookupTensor "model.layers.0.self_attn.q_proj.weight" ts of
+  -- F32 spot: output_norm first 5
+  case lookupTensor "output_norm.weight" g of
+    Just t  -> putStrLn ("output_norm[0..4]: "
+                 ++ show [ f32At (gBytes g) (gtOff t + 4 * i) | i <- [0 .. 4] ])
+    Nothing -> putStrLn "output_norm: MISSING"
+
+  -- Q1_0 spots: embed rows 0 and 700 (row length 5120), attn_q row 0.
+  case lookupTensor "token_embd.weight" g of
     Just t  -> do
-      let b = slice dat t
-          [packedRows, inDim] = tShape t
-          outDim = packedRows * 4
-          row0 = unpackRow b inDim outDim 0
-      putStrLn ("q_proj trits row0[0..15]: " ++ show (take 16 row0))
-      putStrLn ("q_proj row0 all ternary: " ++ show (all (\v -> v >= -1 && v <= 1) row0)
-                 ++ "  (len " ++ show (length row0) ++ ")")
-      putStrLn ("q_proj trits row700[0..15]: " ++ show (take 16 (unpackRow b inDim outDim 700)))
-    Nothing -> putStrLn "q_proj: MISSING"
+      putStrLn ("embd[0,0..7]: "   ++ show (q1Row (gBytes g) (gtOff t) 5120 0 0 8))
+      putStrLn ("embd[700,0..7]: " ++ show (q1Row (gBytes g) (gtOff t) 5120 700 0 8))
+    Nothing -> putStrLn "embd: MISSING"
+  case lookupTensor "blk.3.attn_q.weight" g of
+    Just t  -> putStrLn ("attn_q[0,0..7]: " ++ show (q1Row (gBytes g) (gtOff t) 5120 0 0 8))
+    Nothing -> putStrLn "attn_q: MISSING"
