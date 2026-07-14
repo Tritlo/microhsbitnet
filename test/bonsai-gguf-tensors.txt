@@ -1,0 +1,856 @@
+GGUF file: /home/tritlo/Code/BitNetComb/models/bonsai-27b/Bonsai-27B-Q1_0.gguf
+Number of tensors: 851
+====================================================================================================
+name                                               shape                     dtype                    offset      n_elements
+----------------------------------------------------------------------------------------------------
+output.weight                                      (5120, 248320)            Q1_0                   10992704      1271398400
+output_norm.weight                                 (5120,)                   F32                   189783104            5120
+token_embd.weight                                  (5120, 248320)            Q1_0                  189803584      1271398400
+blk.0.attn_gate.weight                             (5120, 6144)              Q1_0                  368593984        31457280
+blk.0.attn_norm.weight                             (5120,)                   F32                   373017664            5120
+blk.0.attn_qkv.weight                              (5120, 10240)             Q1_0                  373038144        52428800
+blk.0.ffn_down.weight                              (17408, 5120)             Q1_0                  380410944        89128960
+blk.0.ffn_gate.weight                              (5120, 17408)             Q1_0                  392944704        89128960
+blk.0.ffn_up.weight                                (5120, 17408)             Q1_0                  405478464        89128960
+blk.0.post_attention_norm.weight                   (5120,)                   F32                   418012224            5120
+blk.0.ssm_a                                        (48,)                     F32                   418032704              48
+blk.0.ssm_alpha.weight                             (5120, 48)                Q1_0                  418032896          245760
+blk.0.ssm_beta.weight                              (5120, 48)                Q1_0                  418067456          245760
+blk.0.ssm_conv1d.weight                            (4, 10240)                F32                   418102016           40960
+blk.0.ssm_dt.bias                                  (48,)                     F32                   418265856              48
+blk.0.ssm_norm.weight                              (128,)                    F32                   418266048             128
+blk.0.ssm_out.weight                               (6144, 5120)              Q1_0                  418266560        31457280
+blk.1.attn_gate.weight                             (5120, 6144)              Q1_0                  422690240        31457280
+blk.1.attn_norm.weight                             (5120,)                   F32                   427113920            5120
+blk.1.attn_qkv.weight                              (5120, 10240)             Q1_0                  427134400        52428800
+blk.1.ffn_down.weight                              (17408, 5120)             Q1_0                  434507200        89128960
+blk.1.ffn_gate.weight                              (5120, 17408)             Q1_0                  447040960        89128960
+blk.1.ffn_up.weight                                (5120, 17408)             Q1_0                  459574720        89128960
+blk.1.post_attention_norm.weight                   (5120,)                   F32                   472108480            5120
+blk.1.ssm_a                                        (48,)                     F32                   472128960              48
+blk.1.ssm_alpha.weight                             (5120, 48)                Q1_0                  472129152          245760
+blk.1.ssm_beta.weight                              (5120, 48)                Q1_0                  472163712          245760
+blk.1.ssm_conv1d.weight                            (4, 10240)                F32                   472198272           40960
+blk.1.ssm_dt.bias                                  (48,)                     F32                   472362112              48
+blk.1.ssm_norm.weight                              (128,)                    F32                   472362304             128
+blk.1.ssm_out.weight                               (6144, 5120)              Q1_0                  472362816        31457280
+blk.2.attn_gate.weight                             (5120, 6144)              Q1_0                  476786496        31457280
+blk.2.attn_norm.weight                             (5120,)                   F32                   481210176            5120
+blk.2.attn_qkv.weight                              (5120, 10240)             Q1_0                  481230656        52428800
+blk.2.ffn_down.weight                              (17408, 5120)             Q1_0                  488603456        89128960
+blk.2.ffn_gate.weight                              (5120, 17408)             Q1_0                  501137216        89128960
+blk.2.ffn_up.weight                                (5120, 17408)             Q1_0                  513670976        89128960
+blk.2.post_attention_norm.weight                   (5120,)                   F32                   526204736            5120
+blk.2.ssm_a                                        (48,)                     F32                   526225216              48
+blk.2.ssm_alpha.weight                             (5120, 48)                Q1_0                  526225408          245760
+blk.2.ssm_beta.weight                              (5120, 48)                Q1_0                  526259968          245760
+blk.2.ssm_conv1d.weight                            (4, 10240)                F32                   526294528           40960
+blk.2.ssm_dt.bias                                  (48,)                     F32                   526458368              48
+blk.2.ssm_norm.weight                              (128,)                    F32                   526458560             128
+blk.2.ssm_out.weight                               (6144, 5120)              Q1_0                  526459072        31457280
+blk.3.attn_k.weight                                (5120, 1024)              Q1_0                  530882752         5242880
+blk.3.attn_k_norm.weight                           (256,)                    F32                   531620032             256
+blk.3.attn_norm.weight                             (5120,)                   F32                   531621056            5120
+blk.3.attn_output.weight                           (6144, 5120)              Q1_0                  531641536        31457280
+blk.3.attn_q.weight                                (5120, 12288)             Q1_0                  536065216        62914560
+blk.3.attn_q_norm.weight                           (256,)                    F32                   544912576             256
+blk.3.attn_v.weight                                (5120, 1024)              Q1_0                  544913600         5242880
+blk.3.ffn_down.weight                              (17408, 5120)             Q1_0                  545650880        89128960
+blk.3.ffn_gate.weight                              (5120, 17408)             Q1_0                  558184640        89128960
+blk.3.ffn_up.weight                                (5120, 17408)             Q1_0                  570718400        89128960
+blk.3.post_attention_norm.weight                   (5120,)                   F32                   583252160            5120
+blk.4.attn_gate.weight                             (5120, 6144)              Q1_0                  583272640        31457280
+blk.4.attn_norm.weight                             (5120,)                   F32                   587696320            5120
+blk.4.attn_qkv.weight                              (5120, 10240)             Q1_0                  587716800        52428800
+blk.4.ffn_down.weight                              (17408, 5120)             Q1_0                  595089600        89128960
+blk.4.ffn_gate.weight                              (5120, 17408)             Q1_0                  607623360        89128960
+blk.4.ffn_up.weight                                (5120, 17408)             Q1_0                  620157120        89128960
+blk.4.post_attention_norm.weight                   (5120,)                   F32                   632690880            5120
+blk.4.ssm_a                                        (48,)                     F32                   632711360              48
+blk.4.ssm_alpha.weight                             (5120, 48)                Q1_0                  632711552          245760
+blk.4.ssm_beta.weight                              (5120, 48)                Q1_0                  632746112          245760
+blk.4.ssm_conv1d.weight                            (4, 10240)                F32                   632780672           40960
+blk.4.ssm_dt.bias                                  (48,)                     F32                   632944512              48
+blk.4.ssm_norm.weight                              (128,)                    F32                   632944704             128
+blk.4.ssm_out.weight                               (6144, 5120)              Q1_0                  632945216        31457280
+blk.5.attn_gate.weight                             (5120, 6144)              Q1_0                  637368896        31457280
+blk.5.attn_norm.weight                             (5120,)                   F32                   641792576            5120
+blk.5.attn_qkv.weight                              (5120, 10240)             Q1_0                  641813056        52428800
+blk.5.ffn_down.weight                              (17408, 5120)             Q1_0                  649185856        89128960
+blk.5.ffn_gate.weight                              (5120, 17408)             Q1_0                  661719616        89128960
+blk.5.ffn_up.weight                                (5120, 17408)             Q1_0                  674253376        89128960
+blk.5.post_attention_norm.weight                   (5120,)                   F32                   686787136            5120
+blk.5.ssm_a                                        (48,)                     F32                   686807616              48
+blk.5.ssm_alpha.weight                             (5120, 48)                Q1_0                  686807808          245760
+blk.5.ssm_beta.weight                              (5120, 48)                Q1_0                  686842368          245760
+blk.5.ssm_conv1d.weight                            (4, 10240)                F32                   686876928           40960
+blk.5.ssm_dt.bias                                  (48,)                     F32                   687040768              48
+blk.5.ssm_norm.weight                              (128,)                    F32                   687040960             128
+blk.5.ssm_out.weight                               (6144, 5120)              Q1_0                  687041472        31457280
+blk.6.attn_gate.weight                             (5120, 6144)              Q1_0                  691465152        31457280
+blk.6.attn_norm.weight                             (5120,)                   F32                   695888832            5120
+blk.6.attn_qkv.weight                              (5120, 10240)             Q1_0                  695909312        52428800
+blk.6.ffn_down.weight                              (17408, 5120)             Q1_0                  703282112        89128960
+blk.6.ffn_gate.weight                              (5120, 17408)             Q1_0                  715815872        89128960
+blk.6.ffn_up.weight                                (5120, 17408)             Q1_0                  728349632        89128960
+blk.6.post_attention_norm.weight                   (5120,)                   F32                   740883392            5120
+blk.6.ssm_a                                        (48,)                     F32                   740903872              48
+blk.6.ssm_alpha.weight                             (5120, 48)                Q1_0                  740904064          245760
+blk.6.ssm_beta.weight                              (5120, 48)                Q1_0                  740938624          245760
+blk.6.ssm_conv1d.weight                            (4, 10240)                F32                   740973184           40960
+blk.6.ssm_dt.bias                                  (48,)                     F32                   741137024              48
+blk.6.ssm_norm.weight                              (128,)                    F32                   741137216             128
+blk.6.ssm_out.weight                               (6144, 5120)              Q1_0                  741137728        31457280
+blk.7.attn_k.weight                                (5120, 1024)              Q1_0                  745561408         5242880
+blk.7.attn_k_norm.weight                           (256,)                    F32                   746298688             256
+blk.7.attn_norm.weight                             (5120,)                   F32                   746299712            5120
+blk.7.attn_output.weight                           (6144, 5120)              Q1_0                  746320192        31457280
+blk.7.attn_q.weight                                (5120, 12288)             Q1_0                  750743872        62914560
+blk.7.attn_q_norm.weight                           (256,)                    F32                   759591232             256
+blk.7.attn_v.weight                                (5120, 1024)              Q1_0                  759592256         5242880
+blk.7.ffn_down.weight                              (17408, 5120)             Q1_0                  760329536        89128960
+blk.7.ffn_gate.weight                              (5120, 17408)             Q1_0                  772863296        89128960
+blk.7.ffn_up.weight                                (5120, 17408)             Q1_0                  785397056        89128960
+blk.7.post_attention_norm.weight                   (5120,)                   F32                   797930816            5120
+blk.8.attn_gate.weight                             (5120, 6144)              Q1_0                  797951296        31457280
+blk.8.attn_norm.weight                             (5120,)                   F32                   802374976            5120
+blk.8.attn_qkv.weight                              (5120, 10240)             Q1_0                  802395456        52428800
+blk.8.ffn_down.weight                              (17408, 5120)             Q1_0                  809768256        89128960
+blk.8.ffn_gate.weight                              (5120, 17408)             Q1_0                  822302016        89128960
+blk.8.ffn_up.weight                                (5120, 17408)             Q1_0                  834835776        89128960
+blk.8.post_attention_norm.weight                   (5120,)                   F32                   847369536            5120
+blk.8.ssm_a                                        (48,)                     F32                   847390016              48
+blk.8.ssm_alpha.weight                             (5120, 48)                Q1_0                  847390208          245760
+blk.8.ssm_beta.weight                              (5120, 48)                Q1_0                  847424768          245760
+blk.8.ssm_conv1d.weight                            (4, 10240)                F32                   847459328           40960
+blk.8.ssm_dt.bias                                  (48,)                     F32                   847623168              48
+blk.8.ssm_norm.weight                              (128,)                    F32                   847623360             128
+blk.8.ssm_out.weight                               (6144, 5120)              Q1_0                  847623872        31457280
+blk.9.attn_gate.weight                             (5120, 6144)              Q1_0                  852047552        31457280
+blk.9.attn_norm.weight                             (5120,)                   F32                   856471232            5120
+blk.9.attn_qkv.weight                              (5120, 10240)             Q1_0                  856491712        52428800
+blk.9.ffn_down.weight                              (17408, 5120)             Q1_0                  863864512        89128960
+blk.9.ffn_gate.weight                              (5120, 17408)             Q1_0                  876398272        89128960
+blk.9.ffn_up.weight                                (5120, 17408)             Q1_0                  888932032        89128960
+blk.9.post_attention_norm.weight                   (5120,)                   F32                   901465792            5120
+blk.9.ssm_a                                        (48,)                     F32                   901486272              48
+blk.9.ssm_alpha.weight                             (5120, 48)                Q1_0                  901486464          245760
+blk.9.ssm_beta.weight                              (5120, 48)                Q1_0                  901521024          245760
+blk.9.ssm_conv1d.weight                            (4, 10240)                F32                   901555584           40960
+blk.9.ssm_dt.bias                                  (48,)                     F32                   901719424              48
+blk.9.ssm_norm.weight                              (128,)                    F32                   901719616             128
+blk.9.ssm_out.weight                               (6144, 5120)              Q1_0                  901720128        31457280
+blk.10.attn_gate.weight                            (5120, 6144)              Q1_0                  906143808        31457280
+blk.10.attn_norm.weight                            (5120,)                   F32                   910567488            5120
+blk.10.attn_qkv.weight                             (5120, 10240)             Q1_0                  910587968        52428800
+blk.10.ffn_down.weight                             (17408, 5120)             Q1_0                  917960768        89128960
+blk.10.ffn_gate.weight                             (5120, 17408)             Q1_0                  930494528        89128960
+blk.10.ffn_up.weight                               (5120, 17408)             Q1_0                  943028288        89128960
+blk.10.post_attention_norm.weight                  (5120,)                   F32                   955562048            5120
+blk.10.ssm_a                                       (48,)                     F32                   955582528              48
+blk.10.ssm_alpha.weight                            (5120, 48)                Q1_0                  955582720          245760
+blk.10.ssm_beta.weight                             (5120, 48)                Q1_0                  955617280          245760
+blk.10.ssm_conv1d.weight                           (4, 10240)                F32                   955651840           40960
+blk.10.ssm_dt.bias                                 (48,)                     F32                   955815680              48
+blk.10.ssm_norm.weight                             (128,)                    F32                   955815872             128
+blk.10.ssm_out.weight                              (6144, 5120)              Q1_0                  955816384        31457280
+blk.11.attn_k.weight                               (5120, 1024)              Q1_0                  960240064         5242880
+blk.11.attn_k_norm.weight                          (256,)                    F32                   960977344             256
+blk.11.attn_norm.weight                            (5120,)                   F32                   960978368            5120
+blk.11.attn_output.weight                          (6144, 5120)              Q1_0                  960998848        31457280
+blk.11.attn_q.weight                               (5120, 12288)             Q1_0                  965422528        62914560
+blk.11.attn_q_norm.weight                          (256,)                    F32                   974269888             256
+blk.11.attn_v.weight                               (5120, 1024)              Q1_0                  974270912         5242880
+blk.11.ffn_down.weight                             (17408, 5120)             Q1_0                  975008192        89128960
+blk.11.ffn_gate.weight                             (5120, 17408)             Q1_0                  987541952        89128960
+blk.11.ffn_up.weight                               (5120, 17408)             Q1_0                 1000075712        89128960
+blk.11.post_attention_norm.weight                  (5120,)                   F32                  1012609472            5120
+blk.12.attn_gate.weight                            (5120, 6144)              Q1_0                 1012629952        31457280
+blk.12.attn_norm.weight                            (5120,)                   F32                  1017053632            5120
+blk.12.attn_qkv.weight                             (5120, 10240)             Q1_0                 1017074112        52428800
+blk.12.ffn_down.weight                             (17408, 5120)             Q1_0                 1024446912        89128960
+blk.12.ffn_gate.weight                             (5120, 17408)             Q1_0                 1036980672        89128960
+blk.12.ffn_up.weight                               (5120, 17408)             Q1_0                 1049514432        89128960
+blk.12.post_attention_norm.weight                  (5120,)                   F32                  1062048192            5120
+blk.12.ssm_a                                       (48,)                     F32                  1062068672              48
+blk.12.ssm_alpha.weight                            (5120, 48)                Q1_0                 1062068864          245760
+blk.12.ssm_beta.weight                             (5120, 48)                Q1_0                 1062103424          245760
+blk.12.ssm_conv1d.weight                           (4, 10240)                F32                  1062137984           40960
+blk.12.ssm_dt.bias                                 (48,)                     F32                  1062301824              48
+blk.12.ssm_norm.weight                             (128,)                    F32                  1062302016             128
+blk.12.ssm_out.weight                              (6144, 5120)              Q1_0                 1062302528        31457280
+blk.13.attn_gate.weight                            (5120, 6144)              Q1_0                 1066726208        31457280
+blk.13.attn_norm.weight                            (5120,)                   F32                  1071149888            5120
+blk.13.attn_qkv.weight                             (5120, 10240)             Q1_0                 1071170368        52428800
+blk.13.ffn_down.weight                             (17408, 5120)             Q1_0                 1078543168        89128960
+blk.13.ffn_gate.weight                             (5120, 17408)             Q1_0                 1091076928        89128960
+blk.13.ffn_up.weight                               (5120, 17408)             Q1_0                 1103610688        89128960
+blk.13.post_attention_norm.weight                  (5120,)                   F32                  1116144448            5120
+blk.13.ssm_a                                       (48,)                     F32                  1116164928              48
+blk.13.ssm_alpha.weight                            (5120, 48)                Q1_0                 1116165120          245760
+blk.13.ssm_beta.weight                             (5120, 48)                Q1_0                 1116199680          245760
+blk.13.ssm_conv1d.weight                           (4, 10240)                F32                  1116234240           40960
+blk.13.ssm_dt.bias                                 (48,)                     F32                  1116398080              48
+blk.13.ssm_norm.weight                             (128,)                    F32                  1116398272             128
+blk.13.ssm_out.weight                              (6144, 5120)              Q1_0                 1116398784        31457280
+blk.14.attn_gate.weight                            (5120, 6144)              Q1_0                 1120822464        31457280
+blk.14.attn_norm.weight                            (5120,)                   F32                  1125246144            5120
+blk.14.attn_qkv.weight                             (5120, 10240)             Q1_0                 1125266624        52428800
+blk.14.ffn_down.weight                             (17408, 5120)             Q1_0                 1132639424        89128960
+blk.14.ffn_gate.weight                             (5120, 17408)             Q1_0                 1145173184        89128960
+blk.14.ffn_up.weight                               (5120, 17408)             Q1_0                 1157706944        89128960
+blk.14.post_attention_norm.weight                  (5120,)                   F32                  1170240704            5120
+blk.14.ssm_a                                       (48,)                     F32                  1170261184              48
+blk.14.ssm_alpha.weight                            (5120, 48)                Q1_0                 1170261376          245760
+blk.14.ssm_beta.weight                             (5120, 48)                Q1_0                 1170295936          245760
+blk.14.ssm_conv1d.weight                           (4, 10240)                F32                  1170330496           40960
+blk.14.ssm_dt.bias                                 (48,)                     F32                  1170494336              48
+blk.14.ssm_norm.weight                             (128,)                    F32                  1170494528             128
+blk.14.ssm_out.weight                              (6144, 5120)              Q1_0                 1170495040        31457280
+blk.15.attn_k.weight                               (5120, 1024)              Q1_0                 1174918720         5242880
+blk.15.attn_k_norm.weight                          (256,)                    F32                  1175656000             256
+blk.15.attn_norm.weight                            (5120,)                   F32                  1175657024            5120
+blk.15.attn_output.weight                          (6144, 5120)              Q1_0                 1175677504        31457280
+blk.15.attn_q.weight                               (5120, 12288)             Q1_0                 1180101184        62914560
+blk.15.attn_q_norm.weight                          (256,)                    F32                  1188948544             256
+blk.15.attn_v.weight                               (5120, 1024)              Q1_0                 1188949568         5242880
+blk.15.ffn_down.weight                             (17408, 5120)             Q1_0                 1189686848        89128960
+blk.15.ffn_gate.weight                             (5120, 17408)             Q1_0                 1202220608        89128960
+blk.15.ffn_up.weight                               (5120, 17408)             Q1_0                 1214754368        89128960
+blk.15.post_attention_norm.weight                  (5120,)                   F32                  1227288128            5120
+blk.16.attn_gate.weight                            (5120, 6144)              Q1_0                 1227308608        31457280
+blk.16.attn_norm.weight                            (5120,)                   F32                  1231732288            5120
+blk.16.attn_qkv.weight                             (5120, 10240)             Q1_0                 1231752768        52428800
+blk.16.ffn_down.weight                             (17408, 5120)             Q1_0                 1239125568        89128960
+blk.16.ffn_gate.weight                             (5120, 17408)             Q1_0                 1251659328        89128960
+blk.16.ffn_up.weight                               (5120, 17408)             Q1_0                 1264193088        89128960
+blk.16.post_attention_norm.weight                  (5120,)                   F32                  1276726848            5120
+blk.16.ssm_a                                       (48,)                     F32                  1276747328              48
+blk.16.ssm_alpha.weight                            (5120, 48)                Q1_0                 1276747520          245760
+blk.16.ssm_beta.weight                             (5120, 48)                Q1_0                 1276782080          245760
+blk.16.ssm_conv1d.weight                           (4, 10240)                F32                  1276816640           40960
+blk.16.ssm_dt.bias                                 (48,)                     F32                  1276980480              48
+blk.16.ssm_norm.weight                             (128,)                    F32                  1276980672             128
+blk.16.ssm_out.weight                              (6144, 5120)              Q1_0                 1276981184        31457280
+blk.17.attn_gate.weight                            (5120, 6144)              Q1_0                 1281404864        31457280
+blk.17.attn_norm.weight                            (5120,)                   F32                  1285828544            5120
+blk.17.attn_qkv.weight                             (5120, 10240)             Q1_0                 1285849024        52428800
+blk.17.ffn_down.weight                             (17408, 5120)             Q1_0                 1293221824        89128960
+blk.17.ffn_gate.weight                             (5120, 17408)             Q1_0                 1305755584        89128960
+blk.17.ffn_up.weight                               (5120, 17408)             Q1_0                 1318289344        89128960
+blk.17.post_attention_norm.weight                  (5120,)                   F32                  1330823104            5120
+blk.17.ssm_a                                       (48,)                     F32                  1330843584              48
+blk.17.ssm_alpha.weight                            (5120, 48)                Q1_0                 1330843776          245760
+blk.17.ssm_beta.weight                             (5120, 48)                Q1_0                 1330878336          245760
+blk.17.ssm_conv1d.weight                           (4, 10240)                F32                  1330912896           40960
+blk.17.ssm_dt.bias                                 (48,)                     F32                  1331076736              48
+blk.17.ssm_norm.weight                             (128,)                    F32                  1331076928             128
+blk.17.ssm_out.weight                              (6144, 5120)              Q1_0                 1331077440        31457280
+blk.18.attn_gate.weight                            (5120, 6144)              Q1_0                 1335501120        31457280
+blk.18.attn_norm.weight                            (5120,)                   F32                  1339924800            5120
+blk.18.attn_qkv.weight                             (5120, 10240)             Q1_0                 1339945280        52428800
+blk.18.ffn_down.weight                             (17408, 5120)             Q1_0                 1347318080        89128960
+blk.18.ffn_gate.weight                             (5120, 17408)             Q1_0                 1359851840        89128960
+blk.18.ffn_up.weight                               (5120, 17408)             Q1_0                 1372385600        89128960
+blk.18.post_attention_norm.weight                  (5120,)                   F32                  1384919360            5120
+blk.18.ssm_a                                       (48,)                     F32                  1384939840              48
+blk.18.ssm_alpha.weight                            (5120, 48)                Q1_0                 1384940032          245760
+blk.18.ssm_beta.weight                             (5120, 48)                Q1_0                 1384974592          245760
+blk.18.ssm_conv1d.weight                           (4, 10240)                F32                  1385009152           40960
+blk.18.ssm_dt.bias                                 (48,)                     F32                  1385172992              48
+blk.18.ssm_norm.weight                             (128,)                    F32                  1385173184             128
+blk.18.ssm_out.weight                              (6144, 5120)              Q1_0                 1385173696        31457280
+blk.19.attn_k.weight                               (5120, 1024)              Q1_0                 1389597376         5242880
+blk.19.attn_k_norm.weight                          (256,)                    F32                  1390334656             256
+blk.19.attn_norm.weight                            (5120,)                   F32                  1390335680            5120
+blk.19.attn_output.weight                          (6144, 5120)              Q1_0                 1390356160        31457280
+blk.19.attn_q.weight                               (5120, 12288)             Q1_0                 1394779840        62914560
+blk.19.attn_q_norm.weight                          (256,)                    F32                  1403627200             256
+blk.19.attn_v.weight                               (5120, 1024)              Q1_0                 1403628224         5242880
+blk.19.ffn_down.weight                             (17408, 5120)             Q1_0                 1404365504        89128960
+blk.19.ffn_gate.weight                             (5120, 17408)             Q1_0                 1416899264        89128960
+blk.19.ffn_up.weight                               (5120, 17408)             Q1_0                 1429433024        89128960
+blk.19.post_attention_norm.weight                  (5120,)                   F32                  1441966784            5120
+blk.20.attn_gate.weight                            (5120, 6144)              Q1_0                 1441987264        31457280
+blk.20.attn_norm.weight                            (5120,)                   F32                  1446410944            5120
+blk.20.attn_qkv.weight                             (5120, 10240)             Q1_0                 1446431424        52428800
+blk.20.ffn_down.weight                             (17408, 5120)             Q1_0                 1453804224        89128960
+blk.20.ffn_gate.weight                             (5120, 17408)             Q1_0                 1466337984        89128960
+blk.20.ffn_up.weight                               (5120, 17408)             Q1_0                 1478871744        89128960
+blk.20.post_attention_norm.weight                  (5120,)                   F32                  1491405504            5120
+blk.20.ssm_a                                       (48,)                     F32                  1491425984              48
+blk.20.ssm_alpha.weight                            (5120, 48)                Q1_0                 1491426176          245760
+blk.20.ssm_beta.weight                             (5120, 48)                Q1_0                 1491460736          245760
+blk.20.ssm_conv1d.weight                           (4, 10240)                F32                  1491495296           40960
+blk.20.ssm_dt.bias                                 (48,)                     F32                  1491659136              48
+blk.20.ssm_norm.weight                             (128,)                    F32                  1491659328             128
+blk.20.ssm_out.weight                              (6144, 5120)              Q1_0                 1491659840        31457280
+blk.21.attn_gate.weight                            (5120, 6144)              Q1_0                 1496083520        31457280
+blk.21.attn_norm.weight                            (5120,)                   F32                  1500507200            5120
+blk.21.attn_qkv.weight                             (5120, 10240)             Q1_0                 1500527680        52428800
+blk.21.ffn_down.weight                             (17408, 5120)             Q1_0                 1507900480        89128960
+blk.21.ffn_gate.weight                             (5120, 17408)             Q1_0                 1520434240        89128960
+blk.21.ffn_up.weight                               (5120, 17408)             Q1_0                 1532968000        89128960
+blk.21.post_attention_norm.weight                  (5120,)                   F32                  1545501760            5120
+blk.21.ssm_a                                       (48,)                     F32                  1545522240              48
+blk.21.ssm_alpha.weight                            (5120, 48)                Q1_0                 1545522432          245760
+blk.21.ssm_beta.weight                             (5120, 48)                Q1_0                 1545556992          245760
+blk.21.ssm_conv1d.weight                           (4, 10240)                F32                  1545591552           40960
+blk.21.ssm_dt.bias                                 (48,)                     F32                  1545755392              48
+blk.21.ssm_norm.weight                             (128,)                    F32                  1545755584             128
+blk.21.ssm_out.weight                              (6144, 5120)              Q1_0                 1545756096        31457280
+blk.22.attn_gate.weight                            (5120, 6144)              Q1_0                 1550179776        31457280
+blk.22.attn_norm.weight                            (5120,)                   F32                  1554603456            5120
+blk.22.attn_qkv.weight                             (5120, 10240)             Q1_0                 1554623936        52428800
+blk.22.ffn_down.weight                             (17408, 5120)             Q1_0                 1561996736        89128960
+blk.22.ffn_gate.weight                             (5120, 17408)             Q1_0                 1574530496        89128960
+blk.22.ffn_up.weight                               (5120, 17408)             Q1_0                 1587064256        89128960
+blk.22.post_attention_norm.weight                  (5120,)                   F32                  1599598016            5120
+blk.22.ssm_a                                       (48,)                     F32                  1599618496              48
+blk.22.ssm_alpha.weight                            (5120, 48)                Q1_0                 1599618688          245760
+blk.22.ssm_beta.weight                             (5120, 48)                Q1_0                 1599653248          245760
+blk.22.ssm_conv1d.weight                           (4, 10240)                F32                  1599687808           40960
+blk.22.ssm_dt.bias                                 (48,)                     F32                  1599851648              48
+blk.22.ssm_norm.weight                             (128,)                    F32                  1599851840             128
+blk.22.ssm_out.weight                              (6144, 5120)              Q1_0                 1599852352        31457280
+blk.23.attn_k.weight                               (5120, 1024)              Q1_0                 1604276032         5242880
+blk.23.attn_k_norm.weight                          (256,)                    F32                  1605013312             256
+blk.23.attn_norm.weight                            (5120,)                   F32                  1605014336            5120
+blk.23.attn_output.weight                          (6144, 5120)              Q1_0                 1605034816        31457280
+blk.23.attn_q.weight                               (5120, 12288)             Q1_0                 1609458496        62914560
+blk.23.attn_q_norm.weight                          (256,)                    F32                  1618305856             256
+blk.23.attn_v.weight                               (5120, 1024)              Q1_0                 1618306880         5242880
+blk.23.ffn_down.weight                             (17408, 5120)             Q1_0                 1619044160        89128960
+blk.23.ffn_gate.weight                             (5120, 17408)             Q1_0                 1631577920        89128960
+blk.23.ffn_up.weight                               (5120, 17408)             Q1_0                 1644111680        89128960
+blk.23.post_attention_norm.weight                  (5120,)                   F32                  1656645440            5120
+blk.24.attn_gate.weight                            (5120, 6144)              Q1_0                 1656665920        31457280
+blk.24.attn_norm.weight                            (5120,)                   F32                  1661089600            5120
+blk.24.attn_qkv.weight                             (5120, 10240)             Q1_0                 1661110080        52428800
+blk.24.ffn_down.weight                             (17408, 5120)             Q1_0                 1668482880        89128960
+blk.24.ffn_gate.weight                             (5120, 17408)             Q1_0                 1681016640        89128960
+blk.24.ffn_up.weight                               (5120, 17408)             Q1_0                 1693550400        89128960
+blk.24.post_attention_norm.weight                  (5120,)                   F32                  1706084160            5120
+blk.24.ssm_a                                       (48,)                     F32                  1706104640              48
+blk.24.ssm_alpha.weight                            (5120, 48)                Q1_0                 1706104832          245760
+blk.24.ssm_beta.weight                             (5120, 48)                Q1_0                 1706139392          245760
+blk.24.ssm_conv1d.weight                           (4, 10240)                F32                  1706173952           40960
+blk.24.ssm_dt.bias                                 (48,)                     F32                  1706337792              48
+blk.24.ssm_norm.weight                             (128,)                    F32                  1706337984             128
+blk.24.ssm_out.weight                              (6144, 5120)              Q1_0                 1706338496        31457280
+blk.25.attn_gate.weight                            (5120, 6144)              Q1_0                 1710762176        31457280
+blk.25.attn_norm.weight                            (5120,)                   F32                  1715185856            5120
+blk.25.attn_qkv.weight                             (5120, 10240)             Q1_0                 1715206336        52428800
+blk.25.ffn_down.weight                             (17408, 5120)             Q1_0                 1722579136        89128960
+blk.25.ffn_gate.weight                             (5120, 17408)             Q1_0                 1735112896        89128960
+blk.25.ffn_up.weight                               (5120, 17408)             Q1_0                 1747646656        89128960
+blk.25.post_attention_norm.weight                  (5120,)                   F32                  1760180416            5120
+blk.25.ssm_a                                       (48,)                     F32                  1760200896              48
+blk.25.ssm_alpha.weight                            (5120, 48)                Q1_0                 1760201088          245760
+blk.25.ssm_beta.weight                             (5120, 48)                Q1_0                 1760235648          245760
+blk.25.ssm_conv1d.weight                           (4, 10240)                F32                  1760270208           40960
+blk.25.ssm_dt.bias                                 (48,)                     F32                  1760434048              48
+blk.25.ssm_norm.weight                             (128,)                    F32                  1760434240             128
+blk.25.ssm_out.weight                              (6144, 5120)              Q1_0                 1760434752        31457280
+blk.26.attn_gate.weight                            (5120, 6144)              Q1_0                 1764858432        31457280
+blk.26.attn_norm.weight                            (5120,)                   F32                  1769282112            5120
+blk.26.attn_qkv.weight                             (5120, 10240)             Q1_0                 1769302592        52428800
+blk.26.ffn_down.weight                             (17408, 5120)             Q1_0                 1776675392        89128960
+blk.26.ffn_gate.weight                             (5120, 17408)             Q1_0                 1789209152        89128960
+blk.26.ffn_up.weight                               (5120, 17408)             Q1_0                 1801742912        89128960
+blk.26.post_attention_norm.weight                  (5120,)                   F32                  1814276672            5120
+blk.26.ssm_a                                       (48,)                     F32                  1814297152              48
+blk.26.ssm_alpha.weight                            (5120, 48)                Q1_0                 1814297344          245760
+blk.26.ssm_beta.weight                             (5120, 48)                Q1_0                 1814331904          245760
+blk.26.ssm_conv1d.weight                           (4, 10240)                F32                  1814366464           40960
+blk.26.ssm_dt.bias                                 (48,)                     F32                  1814530304              48
+blk.26.ssm_norm.weight                             (128,)                    F32                  1814530496             128
+blk.26.ssm_out.weight                              (6144, 5120)              Q1_0                 1814531008        31457280
+blk.27.attn_k.weight                               (5120, 1024)              Q1_0                 1818954688         5242880
+blk.27.attn_k_norm.weight                          (256,)                    F32                  1819691968             256
+blk.27.attn_norm.weight                            (5120,)                   F32                  1819692992            5120
+blk.27.attn_output.weight                          (6144, 5120)              Q1_0                 1819713472        31457280
+blk.27.attn_q.weight                               (5120, 12288)             Q1_0                 1824137152        62914560
+blk.27.attn_q_norm.weight                          (256,)                    F32                  1832984512             256
+blk.27.attn_v.weight                               (5120, 1024)              Q1_0                 1832985536         5242880
+blk.27.ffn_down.weight                             (17408, 5120)             Q1_0                 1833722816        89128960
+blk.27.ffn_gate.weight                             (5120, 17408)             Q1_0                 1846256576        89128960
+blk.27.ffn_up.weight                               (5120, 17408)             Q1_0                 1858790336        89128960
+blk.27.post_attention_norm.weight                  (5120,)                   F32                  1871324096            5120
+blk.28.attn_gate.weight                            (5120, 6144)              Q1_0                 1871344576        31457280
+blk.28.attn_norm.weight                            (5120,)                   F32                  1875768256            5120
+blk.28.attn_qkv.weight                             (5120, 10240)             Q1_0                 1875788736        52428800
+blk.28.ffn_down.weight                             (17408, 5120)             Q1_0                 1883161536        89128960
+blk.28.ffn_gate.weight                             (5120, 17408)             Q1_0                 1895695296        89128960
+blk.28.ffn_up.weight                               (5120, 17408)             Q1_0                 1908229056        89128960
+blk.28.post_attention_norm.weight                  (5120,)                   F32                  1920762816            5120
+blk.28.ssm_a                                       (48,)                     F32                  1920783296              48
+blk.28.ssm_alpha.weight                            (5120, 48)                Q1_0                 1920783488          245760
+blk.28.ssm_beta.weight                             (5120, 48)                Q1_0                 1920818048          245760
+blk.28.ssm_conv1d.weight                           (4, 10240)                F32                  1920852608           40960
+blk.28.ssm_dt.bias                                 (48,)                     F32                  1921016448              48
+blk.28.ssm_norm.weight                             (128,)                    F32                  1921016640             128
+blk.28.ssm_out.weight                              (6144, 5120)              Q1_0                 1921017152        31457280
+blk.29.attn_gate.weight                            (5120, 6144)              Q1_0                 1925440832        31457280
+blk.29.attn_norm.weight                            (5120,)                   F32                  1929864512            5120
+blk.29.attn_qkv.weight                             (5120, 10240)             Q1_0                 1929884992        52428800
+blk.29.ffn_down.weight                             (17408, 5120)             Q1_0                 1937257792        89128960
+blk.29.ffn_gate.weight                             (5120, 17408)             Q1_0                 1949791552        89128960
+blk.29.ffn_up.weight                               (5120, 17408)             Q1_0                 1962325312        89128960
+blk.29.post_attention_norm.weight                  (5120,)                   F32                  1974859072            5120
+blk.29.ssm_a                                       (48,)                     F32                  1974879552              48
+blk.29.ssm_alpha.weight                            (5120, 48)                Q1_0                 1974879744          245760
+blk.29.ssm_beta.weight                             (5120, 48)                Q1_0                 1974914304          245760
+blk.29.ssm_conv1d.weight                           (4, 10240)                F32                  1974948864           40960
+blk.29.ssm_dt.bias                                 (48,)                     F32                  1975112704              48
+blk.29.ssm_norm.weight                             (128,)                    F32                  1975112896             128
+blk.29.ssm_out.weight                              (6144, 5120)              Q1_0                 1975113408        31457280
+blk.30.attn_gate.weight                            (5120, 6144)              Q1_0                 1979537088        31457280
+blk.30.attn_norm.weight                            (5120,)                   F32                  1983960768            5120
+blk.30.attn_qkv.weight                             (5120, 10240)             Q1_0                 1983981248        52428800
+blk.30.ffn_down.weight                             (17408, 5120)             Q1_0                 1991354048        89128960
+blk.30.ffn_gate.weight                             (5120, 17408)             Q1_0                 2003887808        89128960
+blk.30.ffn_up.weight                               (5120, 17408)             Q1_0                 2016421568        89128960
+blk.30.post_attention_norm.weight                  (5120,)                   F32                  2028955328            5120
+blk.30.ssm_a                                       (48,)                     F32                  2028975808              48
+blk.30.ssm_alpha.weight                            (5120, 48)                Q1_0                 2028976000          245760
+blk.30.ssm_beta.weight                             (5120, 48)                Q1_0                 2029010560          245760
+blk.30.ssm_conv1d.weight                           (4, 10240)                F32                  2029045120           40960
+blk.30.ssm_dt.bias                                 (48,)                     F32                  2029208960              48
+blk.30.ssm_norm.weight                             (128,)                    F32                  2029209152             128
+blk.30.ssm_out.weight                              (6144, 5120)              Q1_0                 2029209664        31457280
+blk.31.attn_k.weight                               (5120, 1024)              Q1_0                 2033633344         5242880
+blk.31.attn_k_norm.weight                          (256,)                    F32                  2034370624             256
+blk.31.attn_norm.weight                            (5120,)                   F32                  2034371648            5120
+blk.31.attn_output.weight                          (6144, 5120)              Q1_0                 2034392128        31457280
+blk.31.attn_q.weight                               (5120, 12288)             Q1_0                 2038815808        62914560
+blk.31.attn_q_norm.weight                          (256,)                    F32                  2047663168             256
+blk.31.attn_v.weight                               (5120, 1024)              Q1_0                 2047664192         5242880
+blk.31.ffn_down.weight                             (17408, 5120)             Q1_0                 2048401472        89128960
+blk.31.ffn_gate.weight                             (5120, 17408)             Q1_0                 2060935232        89128960
+blk.31.ffn_up.weight                               (5120, 17408)             Q1_0                 2073468992        89128960
+blk.31.post_attention_norm.weight                  (5120,)                   F32                  2086002752            5120
+blk.32.attn_gate.weight                            (5120, 6144)              Q1_0                 2086023232        31457280
+blk.32.attn_norm.weight                            (5120,)                   F32                  2090446912            5120
+blk.32.attn_qkv.weight                             (5120, 10240)             Q1_0                 2090467392        52428800
+blk.32.ffn_down.weight                             (17408, 5120)             Q1_0                 2097840192        89128960
+blk.32.ffn_gate.weight                             (5120, 17408)             Q1_0                 2110373952        89128960
+blk.32.ffn_up.weight                               (5120, 17408)             Q1_0                 2122907712        89128960
+blk.32.post_attention_norm.weight                  (5120,)                   F32                  2135441472            5120
+blk.32.ssm_a                                       (48,)                     F32                  2135461952              48
+blk.32.ssm_alpha.weight                            (5120, 48)                Q1_0                 2135462144          245760
+blk.32.ssm_beta.weight                             (5120, 48)                Q1_0                 2135496704          245760
+blk.32.ssm_conv1d.weight                           (4, 10240)                F32                  2135531264           40960
+blk.32.ssm_dt.bias                                 (48,)                     F32                  2135695104              48
+blk.32.ssm_norm.weight                             (128,)                    F32                  2135695296             128
+blk.32.ssm_out.weight                              (6144, 5120)              Q1_0                 2135695808        31457280
+blk.33.attn_gate.weight                            (5120, 6144)              Q1_0                 2140119488        31457280
+blk.33.attn_norm.weight                            (5120,)                   F32                  2144543168            5120
+blk.33.attn_qkv.weight                             (5120, 10240)             Q1_0                 2144563648        52428800
+blk.33.ffn_down.weight                             (17408, 5120)             Q1_0                 2151936448        89128960
+blk.33.ffn_gate.weight                             (5120, 17408)             Q1_0                 2164470208        89128960
+blk.33.ffn_up.weight                               (5120, 17408)             Q1_0                 2177003968        89128960
+blk.33.post_attention_norm.weight                  (5120,)                   F32                  2189537728            5120
+blk.33.ssm_a                                       (48,)                     F32                  2189558208              48
+blk.33.ssm_alpha.weight                            (5120, 48)                Q1_0                 2189558400          245760
+blk.33.ssm_beta.weight                             (5120, 48)                Q1_0                 2189592960          245760
+blk.33.ssm_conv1d.weight                           (4, 10240)                F32                  2189627520           40960
+blk.33.ssm_dt.bias                                 (48,)                     F32                  2189791360              48
+blk.33.ssm_norm.weight                             (128,)                    F32                  2189791552             128
+blk.33.ssm_out.weight                              (6144, 5120)              Q1_0                 2189792064        31457280
+blk.34.attn_gate.weight                            (5120, 6144)              Q1_0                 2194215744        31457280
+blk.34.attn_norm.weight                            (5120,)                   F32                  2198639424            5120
+blk.34.attn_qkv.weight                             (5120, 10240)             Q1_0                 2198659904        52428800
+blk.34.ffn_down.weight                             (17408, 5120)             Q1_0                 2206032704        89128960
+blk.34.ffn_gate.weight                             (5120, 17408)             Q1_0                 2218566464        89128960
+blk.34.ffn_up.weight                               (5120, 17408)             Q1_0                 2231100224        89128960
+blk.34.post_attention_norm.weight                  (5120,)                   F32                  2243633984            5120
+blk.34.ssm_a                                       (48,)                     F32                  2243654464              48
+blk.34.ssm_alpha.weight                            (5120, 48)                Q1_0                 2243654656          245760
+blk.34.ssm_beta.weight                             (5120, 48)                Q1_0                 2243689216          245760
+blk.34.ssm_conv1d.weight                           (4, 10240)                F32                  2243723776           40960
+blk.34.ssm_dt.bias                                 (48,)                     F32                  2243887616              48
+blk.34.ssm_norm.weight                             (128,)                    F32                  2243887808             128
+blk.34.ssm_out.weight                              (6144, 5120)              Q1_0                 2243888320        31457280
+blk.35.attn_k.weight                               (5120, 1024)              Q1_0                 2248312000         5242880
+blk.35.attn_k_norm.weight                          (256,)                    F32                  2249049280             256
+blk.35.attn_norm.weight                            (5120,)                   F32                  2249050304            5120
+blk.35.attn_output.weight                          (6144, 5120)              Q1_0                 2249070784        31457280
+blk.35.attn_q.weight                               (5120, 12288)             Q1_0                 2253494464        62914560
+blk.35.attn_q_norm.weight                          (256,)                    F32                  2262341824             256
+blk.35.attn_v.weight                               (5120, 1024)              Q1_0                 2262342848         5242880
+blk.35.ffn_down.weight                             (17408, 5120)             Q1_0                 2263080128        89128960
+blk.35.ffn_gate.weight                             (5120, 17408)             Q1_0                 2275613888        89128960
+blk.35.ffn_up.weight                               (5120, 17408)             Q1_0                 2288147648        89128960
+blk.35.post_attention_norm.weight                  (5120,)                   F32                  2300681408            5120
+blk.36.attn_gate.weight                            (5120, 6144)              Q1_0                 2300701888        31457280
+blk.36.attn_norm.weight                            (5120,)                   F32                  2305125568            5120
+blk.36.attn_qkv.weight                             (5120, 10240)             Q1_0                 2305146048        52428800
+blk.36.ffn_down.weight                             (17408, 5120)             Q1_0                 2312518848        89128960
+blk.36.ffn_gate.weight                             (5120, 17408)             Q1_0                 2325052608        89128960
+blk.36.ffn_up.weight                               (5120, 17408)             Q1_0                 2337586368        89128960
+blk.36.post_attention_norm.weight                  (5120,)                   F32                  2350120128            5120
+blk.36.ssm_a                                       (48,)                     F32                  2350140608              48
+blk.36.ssm_alpha.weight                            (5120, 48)                Q1_0                 2350140800          245760
+blk.36.ssm_beta.weight                             (5120, 48)                Q1_0                 2350175360          245760
+blk.36.ssm_conv1d.weight                           (4, 10240)                F32                  2350209920           40960
+blk.36.ssm_dt.bias                                 (48,)                     F32                  2350373760              48
+blk.36.ssm_norm.weight                             (128,)                    F32                  2350373952             128
+blk.36.ssm_out.weight                              (6144, 5120)              Q1_0                 2350374464        31457280
+blk.37.attn_gate.weight                            (5120, 6144)              Q1_0                 2354798144        31457280
+blk.37.attn_norm.weight                            (5120,)                   F32                  2359221824            5120
+blk.37.attn_qkv.weight                             (5120, 10240)             Q1_0                 2359242304        52428800
+blk.37.ffn_down.weight                             (17408, 5120)             Q1_0                 2366615104        89128960
+blk.37.ffn_gate.weight                             (5120, 17408)             Q1_0                 2379148864        89128960
+blk.37.ffn_up.weight                               (5120, 17408)             Q1_0                 2391682624        89128960
+blk.37.post_attention_norm.weight                  (5120,)                   F32                  2404216384            5120
+blk.37.ssm_a                                       (48,)                     F32                  2404236864              48
+blk.37.ssm_alpha.weight                            (5120, 48)                Q1_0                 2404237056          245760
+blk.37.ssm_beta.weight                             (5120, 48)                Q1_0                 2404271616          245760
+blk.37.ssm_conv1d.weight                           (4, 10240)                F32                  2404306176           40960
+blk.37.ssm_dt.bias                                 (48,)                     F32                  2404470016              48
+blk.37.ssm_norm.weight                             (128,)                    F32                  2404470208             128
+blk.37.ssm_out.weight                              (6144, 5120)              Q1_0                 2404470720        31457280
+blk.38.attn_gate.weight                            (5120, 6144)              Q1_0                 2408894400        31457280
+blk.38.attn_norm.weight                            (5120,)                   F32                  2413318080            5120
+blk.38.attn_qkv.weight                             (5120, 10240)             Q1_0                 2413338560        52428800
+blk.38.ffn_down.weight                             (17408, 5120)             Q1_0                 2420711360        89128960
+blk.38.ffn_gate.weight                             (5120, 17408)             Q1_0                 2433245120        89128960
+blk.38.ffn_up.weight                               (5120, 17408)             Q1_0                 2445778880        89128960
+blk.38.post_attention_norm.weight                  (5120,)                   F32                  2458312640            5120
+blk.38.ssm_a                                       (48,)                     F32                  2458333120              48
+blk.38.ssm_alpha.weight                            (5120, 48)                Q1_0                 2458333312          245760
+blk.38.ssm_beta.weight                             (5120, 48)                Q1_0                 2458367872          245760
+blk.38.ssm_conv1d.weight                           (4, 10240)                F32                  2458402432           40960
+blk.38.ssm_dt.bias                                 (48,)                     F32                  2458566272              48
+blk.38.ssm_norm.weight                             (128,)                    F32                  2458566464             128
+blk.38.ssm_out.weight                              (6144, 5120)              Q1_0                 2458566976        31457280
+blk.39.attn_k.weight                               (5120, 1024)              Q1_0                 2462990656         5242880
+blk.39.attn_k_norm.weight                          (256,)                    F32                  2463727936             256
+blk.39.attn_norm.weight                            (5120,)                   F32                  2463728960            5120
+blk.39.attn_output.weight                          (6144, 5120)              Q1_0                 2463749440        31457280
+blk.39.attn_q.weight                               (5120, 12288)             Q1_0                 2468173120        62914560
+blk.39.attn_q_norm.weight                          (256,)                    F32                  2477020480             256
+blk.39.attn_v.weight                               (5120, 1024)              Q1_0                 2477021504         5242880
+blk.39.ffn_down.weight                             (17408, 5120)             Q1_0                 2477758784        89128960
+blk.39.ffn_gate.weight                             (5120, 17408)             Q1_0                 2490292544        89128960
+blk.39.ffn_up.weight                               (5120, 17408)             Q1_0                 2502826304        89128960
+blk.39.post_attention_norm.weight                  (5120,)                   F32                  2515360064            5120
+blk.40.attn_gate.weight                            (5120, 6144)              Q1_0                 2515380544        31457280
+blk.40.attn_norm.weight                            (5120,)                   F32                  2519804224            5120
+blk.40.attn_qkv.weight                             (5120, 10240)             Q1_0                 2519824704        52428800
+blk.40.ffn_down.weight                             (17408, 5120)             Q1_0                 2527197504        89128960
+blk.40.ffn_gate.weight                             (5120, 17408)             Q1_0                 2539731264        89128960
+blk.40.ffn_up.weight                               (5120, 17408)             Q1_0                 2552265024        89128960
+blk.40.post_attention_norm.weight                  (5120,)                   F32                  2564798784            5120
+blk.40.ssm_a                                       (48,)                     F32                  2564819264              48
+blk.40.ssm_alpha.weight                            (5120, 48)                Q1_0                 2564819456          245760
+blk.40.ssm_beta.weight                             (5120, 48)                Q1_0                 2564854016          245760
+blk.40.ssm_conv1d.weight                           (4, 10240)                F32                  2564888576           40960
+blk.40.ssm_dt.bias                                 (48,)                     F32                  2565052416              48
+blk.40.ssm_norm.weight                             (128,)                    F32                  2565052608             128
+blk.40.ssm_out.weight                              (6144, 5120)              Q1_0                 2565053120        31457280
+blk.41.attn_gate.weight                            (5120, 6144)              Q1_0                 2569476800        31457280
+blk.41.attn_norm.weight                            (5120,)                   F32                  2573900480            5120
+blk.41.attn_qkv.weight                             (5120, 10240)             Q1_0                 2573920960        52428800
+blk.41.ffn_down.weight                             (17408, 5120)             Q1_0                 2581293760        89128960
+blk.41.ffn_gate.weight                             (5120, 17408)             Q1_0                 2593827520        89128960
+blk.41.ffn_up.weight                               (5120, 17408)             Q1_0                 2606361280        89128960
+blk.41.post_attention_norm.weight                  (5120,)                   F32                  2618895040            5120
+blk.41.ssm_a                                       (48,)                     F32                  2618915520              48
+blk.41.ssm_alpha.weight                            (5120, 48)                Q1_0                 2618915712          245760
+blk.41.ssm_beta.weight                             (5120, 48)                Q1_0                 2618950272          245760
+blk.41.ssm_conv1d.weight                           (4, 10240)                F32                  2618984832           40960
+blk.41.ssm_dt.bias                                 (48,)                     F32                  2619148672              48
+blk.41.ssm_norm.weight                             (128,)                    F32                  2619148864             128
+blk.41.ssm_out.weight                              (6144, 5120)              Q1_0                 2619149376        31457280
+blk.42.attn_gate.weight                            (5120, 6144)              Q1_0                 2623573056        31457280
+blk.42.attn_norm.weight                            (5120,)                   F32                  2627996736            5120
+blk.42.attn_qkv.weight                             (5120, 10240)             Q1_0                 2628017216        52428800
+blk.42.ffn_down.weight                             (17408, 5120)             Q1_0                 2635390016        89128960
+blk.42.ffn_gate.weight                             (5120, 17408)             Q1_0                 2647923776        89128960
+blk.42.ffn_up.weight                               (5120, 17408)             Q1_0                 2660457536        89128960
+blk.42.post_attention_norm.weight                  (5120,)                   F32                  2672991296            5120
+blk.42.ssm_a                                       (48,)                     F32                  2673011776              48
+blk.42.ssm_alpha.weight                            (5120, 48)                Q1_0                 2673011968          245760
+blk.42.ssm_beta.weight                             (5120, 48)                Q1_0                 2673046528          245760
+blk.42.ssm_conv1d.weight                           (4, 10240)                F32                  2673081088           40960
+blk.42.ssm_dt.bias                                 (48,)                     F32                  2673244928              48
+blk.42.ssm_norm.weight                             (128,)                    F32                  2673245120             128
+blk.42.ssm_out.weight                              (6144, 5120)              Q1_0                 2673245632        31457280
+blk.43.attn_k.weight                               (5120, 1024)              Q1_0                 2677669312         5242880
+blk.43.attn_k_norm.weight                          (256,)                    F32                  2678406592             256
+blk.43.attn_norm.weight                            (5120,)                   F32                  2678407616            5120
+blk.43.attn_output.weight                          (6144, 5120)              Q1_0                 2678428096        31457280
+blk.43.attn_q.weight                               (5120, 12288)             Q1_0                 2682851776        62914560
+blk.43.attn_q_norm.weight                          (256,)                    F32                  2691699136             256
+blk.43.attn_v.weight                               (5120, 1024)              Q1_0                 2691700160         5242880
+blk.43.ffn_down.weight                             (17408, 5120)             Q1_0                 2692437440        89128960
+blk.43.ffn_gate.weight                             (5120, 17408)             Q1_0                 2704971200        89128960
+blk.43.ffn_up.weight                               (5120, 17408)             Q1_0                 2717504960        89128960
+blk.43.post_attention_norm.weight                  (5120,)                   F32                  2730038720            5120
+blk.44.attn_gate.weight                            (5120, 6144)              Q1_0                 2730059200        31457280
+blk.44.attn_norm.weight                            (5120,)                   F32                  2734482880            5120
+blk.44.attn_qkv.weight                             (5120, 10240)             Q1_0                 2734503360        52428800
+blk.44.ffn_down.weight                             (17408, 5120)             Q1_0                 2741876160        89128960
+blk.44.ffn_gate.weight                             (5120, 17408)             Q1_0                 2754409920        89128960
+blk.44.ffn_up.weight                               (5120, 17408)             Q1_0                 2766943680        89128960
+blk.44.post_attention_norm.weight                  (5120,)                   F32                  2779477440            5120
+blk.44.ssm_a                                       (48,)                     F32                  2779497920              48
+blk.44.ssm_alpha.weight                            (5120, 48)                Q1_0                 2779498112          245760
+blk.44.ssm_beta.weight                             (5120, 48)                Q1_0                 2779532672          245760
+blk.44.ssm_conv1d.weight                           (4, 10240)                F32                  2779567232           40960
+blk.44.ssm_dt.bias                                 (48,)                     F32                  2779731072              48
+blk.44.ssm_norm.weight                             (128,)                    F32                  2779731264             128
+blk.44.ssm_out.weight                              (6144, 5120)              Q1_0                 2779731776        31457280
+blk.45.attn_gate.weight                            (5120, 6144)              Q1_0                 2784155456        31457280
+blk.45.attn_norm.weight                            (5120,)                   F32                  2788579136            5120
+blk.45.attn_qkv.weight                             (5120, 10240)             Q1_0                 2788599616        52428800
+blk.45.ffn_down.weight                             (17408, 5120)             Q1_0                 2795972416        89128960
+blk.45.ffn_gate.weight                             (5120, 17408)             Q1_0                 2808506176        89128960
+blk.45.ffn_up.weight                               (5120, 17408)             Q1_0                 2821039936        89128960
+blk.45.post_attention_norm.weight                  (5120,)                   F32                  2833573696            5120
+blk.45.ssm_a                                       (48,)                     F32                  2833594176              48
+blk.45.ssm_alpha.weight                            (5120, 48)                Q1_0                 2833594368          245760
+blk.45.ssm_beta.weight                             (5120, 48)                Q1_0                 2833628928          245760
+blk.45.ssm_conv1d.weight                           (4, 10240)                F32                  2833663488           40960
+blk.45.ssm_dt.bias                                 (48,)                     F32                  2833827328              48
+blk.45.ssm_norm.weight                             (128,)                    F32                  2833827520             128
+blk.45.ssm_out.weight                              (6144, 5120)              Q1_0                 2833828032        31457280
+blk.46.attn_gate.weight                            (5120, 6144)              Q1_0                 2838251712        31457280
+blk.46.attn_norm.weight                            (5120,)                   F32                  2842675392            5120
+blk.46.attn_qkv.weight                             (5120, 10240)             Q1_0                 2842695872        52428800
+blk.46.ffn_down.weight                             (17408, 5120)             Q1_0                 2850068672        89128960
+blk.46.ffn_gate.weight                             (5120, 17408)             Q1_0                 2862602432        89128960
+blk.46.ffn_up.weight                               (5120, 17408)             Q1_0                 2875136192        89128960
+blk.46.post_attention_norm.weight                  (5120,)                   F32                  2887669952            5120
+blk.46.ssm_a                                       (48,)                     F32                  2887690432              48
+blk.46.ssm_alpha.weight                            (5120, 48)                Q1_0                 2887690624          245760
+blk.46.ssm_beta.weight                             (5120, 48)                Q1_0                 2887725184          245760
+blk.46.ssm_conv1d.weight                           (4, 10240)                F32                  2887759744           40960
+blk.46.ssm_dt.bias                                 (48,)                     F32                  2887923584              48
+blk.46.ssm_norm.weight                             (128,)                    F32                  2887923776             128
+blk.46.ssm_out.weight                              (6144, 5120)              Q1_0                 2887924288        31457280
+blk.47.attn_k.weight                               (5120, 1024)              Q1_0                 2892347968         5242880
+blk.47.attn_k_norm.weight                          (256,)                    F32                  2893085248             256
+blk.47.attn_norm.weight                            (5120,)                   F32                  2893086272            5120
+blk.47.attn_output.weight                          (6144, 5120)              Q1_0                 2893106752        31457280
+blk.47.attn_q.weight                               (5120, 12288)             Q1_0                 2897530432        62914560
+blk.47.attn_q_norm.weight                          (256,)                    F32                  2906377792             256
+blk.47.attn_v.weight                               (5120, 1024)              Q1_0                 2906378816         5242880
+blk.47.ffn_down.weight                             (17408, 5120)             Q1_0                 2907116096        89128960
+blk.47.ffn_gate.weight                             (5120, 17408)             Q1_0                 2919649856        89128960
+blk.47.ffn_up.weight                               (5120, 17408)             Q1_0                 2932183616        89128960
+blk.47.post_attention_norm.weight                  (5120,)                   F32                  2944717376            5120
+blk.48.attn_gate.weight                            (5120, 6144)              Q1_0                 2944737856        31457280
+blk.48.attn_norm.weight                            (5120,)                   F32                  2949161536            5120
+blk.48.attn_qkv.weight                             (5120, 10240)             Q1_0                 2949182016        52428800
+blk.48.ffn_down.weight                             (17408, 5120)             Q1_0                 2956554816        89128960
+blk.48.ffn_gate.weight                             (5120, 17408)             Q1_0                 2969088576        89128960
+blk.48.ffn_up.weight                               (5120, 17408)             Q1_0                 2981622336        89128960
+blk.48.post_attention_norm.weight                  (5120,)                   F32                  2994156096            5120
+blk.48.ssm_a                                       (48,)                     F32                  2994176576              48
+blk.48.ssm_alpha.weight                            (5120, 48)                Q1_0                 2994176768          245760
+blk.48.ssm_beta.weight                             (5120, 48)                Q1_0                 2994211328          245760
+blk.48.ssm_conv1d.weight                           (4, 10240)                F32                  2994245888           40960
+blk.48.ssm_dt.bias                                 (48,)                     F32                  2994409728              48
+blk.48.ssm_norm.weight                             (128,)                    F32                  2994409920             128
+blk.48.ssm_out.weight                              (6144, 5120)              Q1_0                 2994410432        31457280
+blk.49.attn_gate.weight                            (5120, 6144)              Q1_0                 2998834112        31457280
+blk.49.attn_norm.weight                            (5120,)                   F32                  3003257792            5120
+blk.49.attn_qkv.weight                             (5120, 10240)             Q1_0                 3003278272        52428800
+blk.49.ffn_down.weight                             (17408, 5120)             Q1_0                 3010651072        89128960
+blk.49.ffn_gate.weight                             (5120, 17408)             Q1_0                 3023184832        89128960
+blk.49.ffn_up.weight                               (5120, 17408)             Q1_0                 3035718592        89128960
+blk.49.post_attention_norm.weight                  (5120,)                   F32                  3048252352            5120
+blk.49.ssm_a                                       (48,)                     F32                  3048272832              48
+blk.49.ssm_alpha.weight                            (5120, 48)                Q1_0                 3048273024          245760
+blk.49.ssm_beta.weight                             (5120, 48)                Q1_0                 3048307584          245760
+blk.49.ssm_conv1d.weight                           (4, 10240)                F32                  3048342144           40960
+blk.49.ssm_dt.bias                                 (48,)                     F32                  3048505984              48
+blk.49.ssm_norm.weight                             (128,)                    F32                  3048506176             128
+blk.49.ssm_out.weight                              (6144, 5120)              Q1_0                 3048506688        31457280
+blk.50.attn_gate.weight                            (5120, 6144)              Q1_0                 3052930368        31457280
+blk.50.attn_norm.weight                            (5120,)                   F32                  3057354048            5120
+blk.50.attn_qkv.weight                             (5120, 10240)             Q1_0                 3057374528        52428800
+blk.50.ffn_down.weight                             (17408, 5120)             Q1_0                 3064747328        89128960
+blk.50.ffn_gate.weight                             (5120, 17408)             Q1_0                 3077281088        89128960
+blk.50.ffn_up.weight                               (5120, 17408)             Q1_0                 3089814848        89128960
+blk.50.post_attention_norm.weight                  (5120,)                   F32                  3102348608            5120
+blk.50.ssm_a                                       (48,)                     F32                  3102369088              48
+blk.50.ssm_alpha.weight                            (5120, 48)                Q1_0                 3102369280          245760
+blk.50.ssm_beta.weight                             (5120, 48)                Q1_0                 3102403840          245760
+blk.50.ssm_conv1d.weight                           (4, 10240)                F32                  3102438400           40960
+blk.50.ssm_dt.bias                                 (48,)                     F32                  3102602240              48
+blk.50.ssm_norm.weight                             (128,)                    F32                  3102602432             128
+blk.50.ssm_out.weight                              (6144, 5120)              Q1_0                 3102602944        31457280
+blk.51.attn_k.weight                               (5120, 1024)              Q1_0                 3107026624         5242880
+blk.51.attn_k_norm.weight                          (256,)                    F32                  3107763904             256
+blk.51.attn_norm.weight                            (5120,)                   F32                  3107764928            5120
+blk.51.attn_output.weight                          (6144, 5120)              Q1_0                 3107785408        31457280
+blk.51.attn_q.weight                               (5120, 12288)             Q1_0                 3112209088        62914560
+blk.51.attn_q_norm.weight                          (256,)                    F32                  3121056448             256
+blk.51.attn_v.weight                               (5120, 1024)              Q1_0                 3121057472         5242880
+blk.51.ffn_down.weight                             (17408, 5120)             Q1_0                 3121794752        89128960
+blk.51.ffn_gate.weight                             (5120, 17408)             Q1_0                 3134328512        89128960
+blk.51.ffn_up.weight                               (5120, 17408)             Q1_0                 3146862272        89128960
+blk.51.post_attention_norm.weight                  (5120,)                   F32                  3159396032            5120
+blk.52.attn_gate.weight                            (5120, 6144)              Q1_0                 3159416512        31457280
+blk.52.attn_norm.weight                            (5120,)                   F32                  3163840192            5120
+blk.52.attn_qkv.weight                             (5120, 10240)             Q1_0                 3163860672        52428800
+blk.52.ffn_down.weight                             (17408, 5120)             Q1_0                 3171233472        89128960
+blk.52.ffn_gate.weight                             (5120, 17408)             Q1_0                 3183767232        89128960
+blk.52.ffn_up.weight                               (5120, 17408)             Q1_0                 3196300992        89128960
+blk.52.post_attention_norm.weight                  (5120,)                   F32                  3208834752            5120
+blk.52.ssm_a                                       (48,)                     F32                  3208855232              48
+blk.52.ssm_alpha.weight                            (5120, 48)                Q1_0                 3208855424          245760
+blk.52.ssm_beta.weight                             (5120, 48)                Q1_0                 3208889984          245760
+blk.52.ssm_conv1d.weight                           (4, 10240)                F32                  3208924544           40960
+blk.52.ssm_dt.bias                                 (48,)                     F32                  3209088384              48
+blk.52.ssm_norm.weight                             (128,)                    F32                  3209088576             128
+blk.52.ssm_out.weight                              (6144, 5120)              Q1_0                 3209089088        31457280
+blk.53.attn_gate.weight                            (5120, 6144)              Q1_0                 3213512768        31457280
+blk.53.attn_norm.weight                            (5120,)                   F32                  3217936448            5120
+blk.53.attn_qkv.weight                             (5120, 10240)             Q1_0                 3217956928        52428800
+blk.53.ffn_down.weight                             (17408, 5120)             Q1_0                 3225329728        89128960
+blk.53.ffn_gate.weight                             (5120, 17408)             Q1_0                 3237863488        89128960
+blk.53.ffn_up.weight                               (5120, 17408)             Q1_0                 3250397248        89128960
+blk.53.post_attention_norm.weight                  (5120,)                   F32                  3262931008            5120
+blk.53.ssm_a                                       (48,)                     F32                  3262951488              48
+blk.53.ssm_alpha.weight                            (5120, 48)                Q1_0                 3262951680          245760
+blk.53.ssm_beta.weight                             (5120, 48)                Q1_0                 3262986240          245760
+blk.53.ssm_conv1d.weight                           (4, 10240)                F32                  3263020800           40960
+blk.53.ssm_dt.bias                                 (48,)                     F32                  3263184640              48
+blk.53.ssm_norm.weight                             (128,)                    F32                  3263184832             128
+blk.53.ssm_out.weight                              (6144, 5120)              Q1_0                 3263185344        31457280
+blk.54.attn_gate.weight                            (5120, 6144)              Q1_0                 3267609024        31457280
+blk.54.attn_norm.weight                            (5120,)                   F32                  3272032704            5120
+blk.54.attn_qkv.weight                             (5120, 10240)             Q1_0                 3272053184        52428800
+blk.54.ffn_down.weight                             (17408, 5120)             Q1_0                 3279425984        89128960
+blk.54.ffn_gate.weight                             (5120, 17408)             Q1_0                 3291959744        89128960
+blk.54.ffn_up.weight                               (5120, 17408)             Q1_0                 3304493504        89128960
+blk.54.post_attention_norm.weight                  (5120,)                   F32                  3317027264            5120
+blk.54.ssm_a                                       (48,)                     F32                  3317047744              48
+blk.54.ssm_alpha.weight                            (5120, 48)                Q1_0                 3317047936          245760
+blk.54.ssm_beta.weight                             (5120, 48)                Q1_0                 3317082496          245760
+blk.54.ssm_conv1d.weight                           (4, 10240)                F32                  3317117056           40960
+blk.54.ssm_dt.bias                                 (48,)                     F32                  3317280896              48
+blk.54.ssm_norm.weight                             (128,)                    F32                  3317281088             128
+blk.54.ssm_out.weight                              (6144, 5120)              Q1_0                 3317281600        31457280
+blk.55.attn_k.weight                               (5120, 1024)              Q1_0                 3321705280         5242880
+blk.55.attn_k_norm.weight                          (256,)                    F32                  3322442560             256
+blk.55.attn_norm.weight                            (5120,)                   F32                  3322443584            5120
+blk.55.attn_output.weight                          (6144, 5120)              Q1_0                 3322464064        31457280
+blk.55.attn_q.weight                               (5120, 12288)             Q1_0                 3326887744        62914560
+blk.55.attn_q_norm.weight                          (256,)                    F32                  3335735104             256
+blk.55.attn_v.weight                               (5120, 1024)              Q1_0                 3335736128         5242880
+blk.55.ffn_down.weight                             (17408, 5120)             Q1_0                 3336473408        89128960
+blk.55.ffn_gate.weight                             (5120, 17408)             Q1_0                 3349007168        89128960
+blk.55.ffn_up.weight                               (5120, 17408)             Q1_0                 3361540928        89128960
+blk.55.post_attention_norm.weight                  (5120,)                   F32                  3374074688            5120
+blk.56.attn_gate.weight                            (5120, 6144)              Q1_0                 3374095168        31457280
+blk.56.attn_norm.weight                            (5120,)                   F32                  3378518848            5120
+blk.56.attn_qkv.weight                             (5120, 10240)             Q1_0                 3378539328        52428800
+blk.56.ffn_down.weight                             (17408, 5120)             Q1_0                 3385912128        89128960
+blk.56.ffn_gate.weight                             (5120, 17408)             Q1_0                 3398445888        89128960
+blk.56.ffn_up.weight                               (5120, 17408)             Q1_0                 3410979648        89128960
+blk.56.post_attention_norm.weight                  (5120,)                   F32                  3423513408            5120
+blk.56.ssm_a                                       (48,)                     F32                  3423533888              48
+blk.56.ssm_alpha.weight                            (5120, 48)                Q1_0                 3423534080          245760
+blk.56.ssm_beta.weight                             (5120, 48)                Q1_0                 3423568640          245760
+blk.56.ssm_conv1d.weight                           (4, 10240)                F32                  3423603200           40960
+blk.56.ssm_dt.bias                                 (48,)                     F32                  3423767040              48
+blk.56.ssm_norm.weight                             (128,)                    F32                  3423767232             128
+blk.56.ssm_out.weight                              (6144, 5120)              Q1_0                 3423767744        31457280
+blk.57.attn_gate.weight                            (5120, 6144)              Q1_0                 3428191424        31457280
+blk.57.attn_norm.weight                            (5120,)                   F32                  3432615104            5120
+blk.57.attn_qkv.weight                             (5120, 10240)             Q1_0                 3432635584        52428800
+blk.57.ffn_down.weight                             (17408, 5120)             Q1_0                 3440008384        89128960
+blk.57.ffn_gate.weight                             (5120, 17408)             Q1_0                 3452542144        89128960
+blk.57.ffn_up.weight                               (5120, 17408)             Q1_0                 3465075904        89128960
+blk.57.post_attention_norm.weight                  (5120,)                   F32                  3477609664            5120
+blk.57.ssm_a                                       (48,)                     F32                  3477630144              48
+blk.57.ssm_alpha.weight                            (5120, 48)                Q1_0                 3477630336          245760
+blk.57.ssm_beta.weight                             (5120, 48)                Q1_0                 3477664896          245760
+blk.57.ssm_conv1d.weight                           (4, 10240)                F32                  3477699456           40960
+blk.57.ssm_dt.bias                                 (48,)                     F32                  3477863296              48
+blk.57.ssm_norm.weight                             (128,)                    F32                  3477863488             128
+blk.57.ssm_out.weight                              (6144, 5120)              Q1_0                 3477864000        31457280
+blk.58.attn_gate.weight                            (5120, 6144)              Q1_0                 3482287680        31457280
+blk.58.attn_norm.weight                            (5120,)                   F32                  3486711360            5120
+blk.58.attn_qkv.weight                             (5120, 10240)             Q1_0                 3486731840        52428800
+blk.58.ffn_down.weight                             (17408, 5120)             Q1_0                 3494104640        89128960
+blk.58.ffn_gate.weight                             (5120, 17408)             Q1_0                 3506638400        89128960
+blk.58.ffn_up.weight                               (5120, 17408)             Q1_0                 3519172160        89128960
+blk.58.post_attention_norm.weight                  (5120,)                   F32                  3531705920            5120
+blk.58.ssm_a                                       (48,)                     F32                  3531726400              48
+blk.58.ssm_alpha.weight                            (5120, 48)                Q1_0                 3531726592          245760
+blk.58.ssm_beta.weight                             (5120, 48)                Q1_0                 3531761152          245760
+blk.58.ssm_conv1d.weight                           (4, 10240)                F32                  3531795712           40960
+blk.58.ssm_dt.bias                                 (48,)                     F32                  3531959552              48
+blk.58.ssm_norm.weight                             (128,)                    F32                  3531959744             128
+blk.58.ssm_out.weight                              (6144, 5120)              Q1_0                 3531960256        31457280
+blk.59.attn_k.weight                               (5120, 1024)              Q1_0                 3536383936         5242880
+blk.59.attn_k_norm.weight                          (256,)                    F32                  3537121216             256
+blk.59.attn_norm.weight                            (5120,)                   F32                  3537122240            5120
+blk.59.attn_output.weight                          (6144, 5120)              Q1_0                 3537142720        31457280
+blk.59.attn_q.weight                               (5120, 12288)             Q1_0                 3541566400        62914560
+blk.59.attn_q_norm.weight                          (256,)                    F32                  3550413760             256
+blk.59.attn_v.weight                               (5120, 1024)              Q1_0                 3550414784         5242880
+blk.59.ffn_down.weight                             (17408, 5120)             Q1_0                 3551152064        89128960
+blk.59.ffn_gate.weight                             (5120, 17408)             Q1_0                 3563685824        89128960
+blk.59.ffn_up.weight                               (5120, 17408)             Q1_0                 3576219584        89128960
+blk.59.post_attention_norm.weight                  (5120,)                   F32                  3588753344            5120
+blk.60.attn_gate.weight                            (5120, 6144)              Q1_0                 3588773824        31457280
+blk.60.attn_norm.weight                            (5120,)                   F32                  3593197504            5120
+blk.60.attn_qkv.weight                             (5120, 10240)             Q1_0                 3593217984        52428800
+blk.60.ffn_down.weight                             (17408, 5120)             Q1_0                 3600590784        89128960
+blk.60.ffn_gate.weight                             (5120, 17408)             Q1_0                 3613124544        89128960
+blk.60.ffn_up.weight                               (5120, 17408)             Q1_0                 3625658304        89128960
+blk.60.post_attention_norm.weight                  (5120,)                   F32                  3638192064            5120
+blk.60.ssm_a                                       (48,)                     F32                  3638212544              48
+blk.60.ssm_alpha.weight                            (5120, 48)                Q1_0                 3638212736          245760
+blk.60.ssm_beta.weight                             (5120, 48)                Q1_0                 3638247296          245760
+blk.60.ssm_conv1d.weight                           (4, 10240)                F32                  3638281856           40960
+blk.60.ssm_dt.bias                                 (48,)                     F32                  3638445696              48
+blk.60.ssm_norm.weight                             (128,)                    F32                  3638445888             128
+blk.60.ssm_out.weight                              (6144, 5120)              Q1_0                 3638446400        31457280
+blk.61.attn_gate.weight                            (5120, 6144)              Q1_0                 3642870080        31457280
+blk.61.attn_norm.weight                            (5120,)                   F32                  3647293760            5120
+blk.61.attn_qkv.weight                             (5120, 10240)             Q1_0                 3647314240        52428800
+blk.61.ffn_down.weight                             (17408, 5120)             Q1_0                 3654687040        89128960
+blk.61.ffn_gate.weight                             (5120, 17408)             Q1_0                 3667220800        89128960
+blk.61.ffn_up.weight                               (5120, 17408)             Q1_0                 3679754560        89128960
+blk.61.post_attention_norm.weight                  (5120,)                   F32                  3692288320            5120
+blk.61.ssm_a                                       (48,)                     F32                  3692308800              48
+blk.61.ssm_alpha.weight                            (5120, 48)                Q1_0                 3692308992          245760
+blk.61.ssm_beta.weight                             (5120, 48)                Q1_0                 3692343552          245760
+blk.61.ssm_conv1d.weight                           (4, 10240)                F32                  3692378112           40960
+blk.61.ssm_dt.bias                                 (48,)                     F32                  3692541952              48
+blk.61.ssm_norm.weight                             (128,)                    F32                  3692542144             128
+blk.61.ssm_out.weight                              (6144, 5120)              Q1_0                 3692542656        31457280
+blk.62.attn_gate.weight                            (5120, 6144)              Q1_0                 3696966336        31457280
+blk.62.attn_norm.weight                            (5120,)                   F32                  3701390016            5120
+blk.62.attn_qkv.weight                             (5120, 10240)             Q1_0                 3701410496        52428800
+blk.62.ffn_down.weight                             (17408, 5120)             Q1_0                 3708783296        89128960
+blk.62.ffn_gate.weight                             (5120, 17408)             Q1_0                 3721317056        89128960
+blk.62.ffn_up.weight                               (5120, 17408)             Q1_0                 3733850816        89128960
+blk.62.post_attention_norm.weight                  (5120,)                   F32                  3746384576            5120
+blk.62.ssm_a                                       (48,)                     F32                  3746405056              48
+blk.62.ssm_alpha.weight                            (5120, 48)                Q1_0                 3746405248          245760
+blk.62.ssm_beta.weight                             (5120, 48)                Q1_0                 3746439808          245760
+blk.62.ssm_conv1d.weight                           (4, 10240)                F32                  3746474368           40960
+blk.62.ssm_dt.bias                                 (48,)                     F32                  3746638208              48
+blk.62.ssm_norm.weight                             (128,)                    F32                  3746638400             128
+blk.62.ssm_out.weight                              (6144, 5120)              Q1_0                 3746638912        31457280
+blk.63.attn_k.weight                               (5120, 1024)              Q1_0                 3751062592         5242880
+blk.63.attn_k_norm.weight                          (256,)                    F32                  3751799872             256
+blk.63.attn_norm.weight                            (5120,)                   F32                  3751800896            5120
+blk.63.attn_output.weight                          (6144, 5120)              Q1_0                 3751821376        31457280
+blk.63.attn_q.weight                               (5120, 12288)             Q1_0                 3756245056        62914560
+blk.63.attn_q_norm.weight                          (256,)                    F32                  3765092416             256
+blk.63.attn_v.weight                               (5120, 1024)              Q1_0                 3765093440         5242880
+blk.63.ffn_down.weight                             (17408, 5120)             Q1_0                 3765830720        89128960
+blk.63.ffn_gate.weight                             (5120, 17408)             Q1_0                 3778364480        89128960
+blk.63.ffn_up.weight                               (5120, 17408)             Q1_0                 3790898240        89128960
+blk.63.post_attention_norm.weight                  (5120,)                   F32                  3803432000            5120

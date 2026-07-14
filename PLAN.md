@@ -1,128 +1,117 @@
-# Plan — BitNet b1.58 inference in MicroHs
+# Plan — 1-bit Bonsai 27B inference in MicroHs
 
-Run [BitNet b1.58 2B4T](models/bitnet-b1.58-2B-4T) inference in MicroHs, interpreting
-ternary weights as list operations (negate / drop / id). See [CONTEXT.md](CONTEXT.md)
-for vocabulary. Staged (win condition **C**):
-build the elegant, correct reference, validate against an oracle, measure, then decide on speed.
+Run [1-bit Bonsai 27B](models/bonsai-27b/Bonsai-27B-Q1_0.gguf) (PrismML's binary re-expression of
+Qwen3.6-27B) in MicroHs, interpreting the 1-bit weights as **subset selection**: a weight bit picks
+*include* or *exclude* in `2·Σ_selected − Σ_all` — the binary specialization of the ternary list-op
+thesis, with the expensive negate op gone.
+The ternary/BitNet path is dropped on this branch. Staged like the original: correct reference
+first, oracle-validated per milestone, then speed.
 
-## Model facts (pinned)
+## Model facts (pinned — from the GGUF KVs and the prism fork source)
 
-- Llama-style decoder: 30 layers, hidden 2560, FFN 6912, GQA 20 query / 5 KV heads
-  (head_dim 128), RoPE θ=500000, RMSNorm (eps 1e-5), squared-ReLU gated FFN, tied embeddings,
-  vocab 128256, max ctx 4096.
-- Per layer: `input_layernorm → q/k/v_proj → RoPE → GQA → attn_sub_norm → o_proj`,
-  then `post_attention_layernorm → gate/up_proj → relu²(gate)⊙up → ffn_sub_norm → down_proj`.
-  The `*_sub_norm` are SubLN RMSNorms applied before each output projection.
-- **BitLinear weights**: `U8`, **4 trits/byte**, 2 bits each, packed along the output dim with
-  **stride = out/4** (byte `j` holds out-rows `j, j+out/4, j+2·out/4, j+3·out/4`).
-  Encode: `(trit+1) ∈ {0,1,2}`. Unpack: `((b >> 2i) & 3) - 1`. One per-tensor `weight_scale` (bf16, absmean).
-- **Activation quant**: per-token `scale = 127 / max(|x|)` (clamp 1e-5), `x_q = round(x·scale)` → int8.
-  Matmul `Wq·xq` is integer adds/subtracts; output rescaled once by `weight_scale / scale`.
-- Embeddings + norms + scales are bf16; bf16→f32 = `(bits << 16)` reinterpreted.
+Ground truth: `general.architecture = qwen35`; graph = the prism llama.cpp fork
+(`~/Code/llama.cpp-prism`, commit `62061f91`) `src/models/qwen35.cpp` + `delta-net-base.cpp`;
+fused-op reference `ggml-cpu/ops.cpp:ggml_compute_forward_gated_delta_net_one_chunk`. GGUF dumps:
+`test/bonsai-gguf-kv.txt`, `test/bonsai-gguf-tensors.txt`.
 
-## Toolchain
+- **Shape**: 64 blocks, hidden 5120, FFN 17408 (SwiGLU: `down(silu(gate)·up)`), RMSNorm eps 1e-6,
+  vocab 248320, ctx 262144 (we cap small), **untied** Q1_0 embeddings + LM head.
+- **Hybrid layout**: `full_attention_interval = 4` → layer `i` is **full attention iff (i+1)%4==0**
+  (16 layers: 3,7,…,63); the other 48 are **gated delta net (GDN)** linear-attention layers.
+- **Block skeleton** (both kinds): `x += Attn(attn_norm(x))`; `x += FFN(post_attention_norm(x))`.
+- **Full attention** (24 Q heads / 4 KV heads, head_dim 256, GQA):
+  - `attn_q` [5120→12288] is **interleaved per head**: 256 query dims then 256 **gate** dims
+    (stride 512/head). `attn_k`/`attn_v` [5120→1024].
+  - Per-head RMSNorm on Q and K (`attn_q_norm`/`attn_k_norm`, 256 dims, eps 1e-6), **before RoPE**.
+  - RoPE: `ggml_rope_multi`, sections [11,11,10,0] (pairs), n_rot 64, θ=1e7 — **only the first 64
+    of 256 dims rotate**; with equal per-section positions (text-only) this reduces to standard
+    neox RoPE over 64 dims (**verify vs oracle — risk R1**).
+  - `softmax(QᵀK/√256)V` causal → `out · σ(gate)` → `attn_output` [6144→5120].
+- **GDN layer** (dims: head 128, 16 k-heads (`ssm.group_count`), 48 v-heads
+  (`ssm.time_step_rank`), key_dim 2048, value_dim = inner_size 6144, conv_dim 10240, d_conv 4):
+  - Projections of the normed input: `attn_qkv` [5120→10240] (q 2048 | k 2048 | v 6144),
+    `attn_gate` (z) [5120→6144], `ssm_beta` [5120→48], `ssm_alpha` [5120→48] — all Q1_0.
+  - `β = σ(beta_proj)`; `g = ssm_a ⊙ softplus(alpha_proj + ssm_dt.bias)` (per v-head scalars;
+    `ssm_a` is negative, so `exp(g) ∈ (0,1)` is the decay).
+  - **Causal depthwise conv, kernel 4** over the 10240 qkv channels (`ssm_conv1d` [4,10240] f32,
+    no bias): ring of the last 3 qkv vectors; `out[c] = Σ_{r=0..3} win[r][c]·K[r][c]`, then SiLU
+    (**verify kernel orientation — risk R2**).
+  - Split conv output → q,k (per-head **L2-normalize**, 128 dims, eps 1e-6 — **risk R3**:
+    x/√(Σx²) vs eps placement), v. k-heads repeat 16→48 (k-head `j%16`… `j/3` — pin: v-head `j`
+    uses k-head `j mod 16`? fork uses `ggml_repeat_4d` = **tile**, so v-head `j` ← k-head
+    `j mod 16`; verify in oracle).
+  - **Delta rule, per v-head, token-by-token** (state S: 128×128 f32, mem layout
+    `s[j*128+i]`, i = k-dim, j = v-dim; zero-init):
+    `S *= exp(g)`; `d[j] = (v[j] − Σᵢ S[i][j]·k[i])·β`; `S[i][j] += k[i]·d[j]`;
+    `o[j] = Σᵢ S[i][j]·q[i] / √128`.
+  - Output: per-head gated RMSNorm `rms(o; ssm_norm) ⊙ silu(z)` → `ssm_out` [6144→5120].
+- **Q1_0 weight format** (`block_q1_0`, 18 B per 128 weights = fp16 scale `d` + 16 sign bytes,
+  LSB-first): `w[j] = bit ? +d : −d`. Rows are contiguous blocks; every matmul weight, the
+  embedding table and the LM head are Q1_0; norms/conv/ssm scalars are F32.
+- **Activation quant**: q8_0-style — per 32 values one f32 scale `max|x|/127`, int8 quants
+  (matches the fork's `vec_dot_q1_0_q8_0` pairing: `sumf += d0 · Σ_k d1_k · Σ_b ±a`).
+- **Tokenizer**: byte-level BPE (`gpt2` model), pre-type `qwen35` (case-insensitive-contractions
+  variant of the GPT-2 regex — see `llama-vocab.cpp:382`), 247587 merges, `add_bos = false`,
+  BOS/pad 248044, EOS 248046. ChatML template with `<think>`; we hardcode the minimal ChatML
+  wrapper (no Jinja).
+- **Sampling defaults** (GGUF KVs): temp 1.0, top-k 20, top-p 0.95. Oracle runs are greedy.
+- Out of scope: vision tower (separate mmproj file), DSpark drafter, MTP/NextN (absent from this
+  GGUF — 851 tensors, no `blk.64+`), 262K context, KV-cache quantization.
 
-- Compile with **`gmhs`** from this repo: `~/Code/MicroHs/bin/gmhs -isrc -i$MHS/lib Mod -obin/out`
-  (the combinator `mhs` OOMs on default heap; `gmhs`, the GHC-built compiler, works).
-- MicroHs has `Double`/`Float`, `Word8`, `Data.Bits` (`shiftR`, `.&.`), `ByteString`,
-  `Foreign.Storable` (Word8/Word32/Float/Double), `Data.Array`, `STRef`, FFI.
+## What carries over from the ternary codebase
 
-## Fast path — C kernel via FFI
-
-Pure MicroHs caps at ~10 s per 2560×2560 BitLinear: the combinator runtime does ~6.5M
-graph reductions for one matmul, and `BS.index` + boxed arithmetic dominate. None of the
-pure restructurings (4-output batching, unpacked-list bytes, multiply vs conditional) beat it.
-
-So the hot dot is a **C kernel called via FFI** — [`cbits/bndot.c`](cbits/bndot.c), three plain
-`foreign import ccall`s from [`src/Dot.hs`](src/Dot.hs), with **no MicroHs runtime patch and no
-custom primitive**. BitNet needs exactly three dots, so there are three dedicated functions (not
-one general dispatch): **`bndot_ternary`** W1.58 ternary×int8 (`shift` selects the 2-bit field —
-the BitLinears), **`bndot_bf16`** bf16×f32 (tied LM head), **`bndot_f32`** f32×f32 (attention q·k).
-Each returns a Double (`sum_c decode_w(w,c)·decode_a(a,c)`, accumulated in double); like ggml's
-per-type `vec_dot` they are pure decode-and-accumulate, so quantization **scales/zero-points are
-the caller's job** (per tensor/group, in Haskell). All three are unit-tested in
-`src/TestKinds.hs`; the list-op `dotTrits` stays the spec for the ternary case.
-
-The bytestrings reach C as raw pointers with no copy (`unsafeUseAsCStringLen`); `bnDot` is pure in
-its immutable inputs, so the FFI call is wrapped in `unsafePerformIO`, run in `IO` inside the
-pointer's scope so it stays live. Float reads go through `memcpy`, so an arbitrary substring offset
-never causes a misaligned load.
-
-Result: q_proj ~10 s → negligible; full decoder block (M2) ~3.5 min → 3.5 s; **full 30-layer
-forward + LM head (M3) ~55 min → ~25 s**, argmax matching HF (token 11). Per-layer math stays
-oracle-exact (M2 ~1e-5); the ~0.6% drift on M3's final hidden is float-order accumulation over
-30 layers re-quantized to int8, within the ~1e-2 target.
-
-**Going faster** — the dot kernels are *batched* (one call does a whole matmul `bnmatmul_ternary` /
-the whole 128 K-vocab argmax `bnargmax_bf16`), the ternary loop is *AVX2*-vectorized (bit-exact —
-integer), and the heavy loops are *OpenMP*-parallel (`BNDOT_THREADS`, default 12). Once the dots
-were free, the per-token vector math (RMSNorm/RoPE/attention/MLP/residuals) was the floor, so the
-**generation path (M4) runs that math in C too** on float32 byte buffers (`bnrmsnorm`, `bnbitlinear`
-fused quant+matmul+rescale, `bnrope`, `bnattend`, `bnsqrelu_mul`, `bnadd`; `decoderStepC` /
-`stepLayersC`). Generation: 6:10 → **0:37** (~10×), bit-identical text. M1/M2/M3 keep the Haskell
-batch path (oracles untouched).
-
-**Build** — use the `Makefile`; it passes the OpenMP/AVX2 flags to cc via `-optc`/`-optl` and links
-the kernel. It builds against any **stock** MicroHs install — `gmhs` auto-detects its own lib +
-runtime (no patch, no fork). The exact known-good MicroHs is pinned as a git **submodule** at
-`vendor/microhs/` (upstream `augustss/MicroHs`), but the build uses your installed `gmhs`:
-
-    gmhs -isrc -optc -fopenmp -optc -march=native -optl -fopenmp -Icbits <Module> cbits/bndot.c -obin/<out>
-
-(M0 links no kernel; TestTok links only `cbits/tokparse.c`.) Run with `BNDOT_THREADS=N` to override
-the 12-thread default.
-
-## MicroHs IO constraints (verified)
-
-- **`BS.empty` / `BS.concat` / `BS.pack []` are broken** (OOM — `empty = pack []` and the
-  empty-list pack hangs). This also breaks `BS.readFile` / `hGetContents` (`concat = foldr
-  append empty`). Use `openBinaryFile` + fixed-count `BS.hGet`, and combine chunks by seeding
-  an accumulator with the first read and `BS.append`-ing only non-empty chunks (never `empty`).
-- No `hSeek`, no `hFileSize`, no `getFileSize`. Fine: safetensors is self-describing — read the
-  8-byte LE u64 header length, read that many header bytes, and the data-section size is
-  `max(data_offsets.end)` from the header. Read the data section in chunks (`hGet` short-reads at
-  EOF) into one resident `ByteString`; slice tensors with `BS.take`/`drop`/`index`.
-- bf16→f32: `(u16 << 16)` reinterpreted via `Foreign` `poke Word32` / `peek Float`.
+- The **loader shape** (sequential fixed-count reads, one resident data ByteString, O(1) slices)
+  — retargeted from safetensors to **GGUF v3** (magic+version, u64 counts, typed KVs, tensor
+  infos, `general.alignment`-padded data section; we only need types F32=0 and Q1_0=41).
+- The **C-kernel-via-FFI architecture**: batched dots + fused per-token vector
+  math on f32 byte buffers, OpenMP/AVX2, scales are the caller's job. `bndot.c` is replaced by
+  `b1dot.c` (Q1_0×q8 select-dot; AVX2 later via `vpsignb`), plus a `gdn_step` kernel (48×128×128
+  state update is C-only territory) and small ops (silu, l2norm, softplus, sigmoid, conv4).
+- The **tokenizer C core** (byte-level BPE in `tokparse.c`) — new regex pre-type, GGUF-sourced
+  vocab/merges instead of tokenizer.json.
+- The oracle discipline: numpy per-milestone oracles in `test/`, plus the fork's
+  **`llama-eval-callback`** (CPU) for per-node activation dumps and fork `llama-cli` (greedy) for
+  end-to-end token parity.
 
 ## Milestones
 
-- **M0 — Loader.** Parse safetensors (8-byte header len + JSON header), read a named tensor's
-  bytes, decode bf16, unpack packed ternary rows. Verify a few weights/scales against a
-  reference dump.
-- **M1 — One BitLinear.** list-op `dot` over int8 activations + scales. Validate **bit-exact**
-  (integer path) against the oracle for a real weight + activation vector.
-- **M2 — One transformer block.** q/k/v → RoPE → GQA → attn_sub_norm → o_proj → MLP. Validate
-  hidden states against HF for layer 0.
-- **M3 — Full stack (done-definition).** 30 layers + embeddings + tied LM head → logits for a
-  prompt; match HF logits to tolerance (~1e-2 rel). Greedy argmax of final logits.
-- **M4 — Generation (later gate).** KV cache + autoregressive greedy loop → text. Attempt only
-  after measuring M3 speed; this is where the C→B optimization decision is made.
+- **M0 — GGUF loader** (`src/Gguf.hs`, rewrite `src/Loader.hs`, `src/M0.hs`): parse header/KVs/
+  tensor table, load the ~3.79 GB data section resident (94 GB RAM box), slice tensors, dequant
+  spot-checks. Oracle: `test/oracle_m0.py` via the fork's `gguf-py` (values + offsets bit-exact).
+- **M1 — Q1_0 BitLinear** (`cbits/b1dot.c`, `src/Dot.hs`): q8_0-style activation quant + fused
+  quantize→select-dot→rescale matmul (`b1linear`), embedding-row dequant (`b1embed`). Oracle:
+  numpy dequant on real tensors, ~1e-5.
+- **M2 — tokenizer** (`cbits/tokparse.c`, `src/Tokenizer.hs`, `src/TestTok.hs`): qwen35 regex +
+  GGUF vocab/merges/added-tokens. Oracle: fork `llama-tokenize` on a corpus incl. specials/CJK/
+  emoji/whitespace runs.
+- **M3 — full-attention block** (`src/Model.hs`): fused Q+gate proj, QK-norm, neox RoPE(64,1e7),
+  GQA attend, σ-gate, FFN. Oracle: `llama-eval-callback` tensor dumps on a short prompt (resolves
+  R1).
+- **M4 — GDN block**: conv ring + delta rule (`gdn_step` in C) + gated norm. Oracle: same dumps
+  (resolves R2/R3); state parity over ≥8 tokens.
+- **M5 — end-to-end generate** (`src/Chat.hs`, `src/Forward.hs`): 64-block forward, Q1_0 LM head
+  argmax, ChatML wrapper, greedy + seeded temp/top-k/top-p. Oracle: greedy token-for-token parity
+  with fork `llama-cli -ngl 0` over ≥32 tokens.
+- **M6 — perf**: AVX2 `vpsignb` path, OpenMP sweep, block-sum trick (`2·Σ_sel − Σ_all`) if it wins,
+  measure tok/s + RSS. Expectation: ~13× the 2B ternary cost/token ⇒ **O(10 s)/token** initially.
 
-## Oracle
+Each milestone = one commit (or a few), oracle in the same commit. CHANGELOG per milestone.
 
-HF `transformers` (torch) in a `uv` venv, used only to dump golden per-layer activations and
-logits for fixed token-ID inputs. Test-time only — never a runtime dependency.
+## Toolchain (unchanged)
 
-## Memory model (avoid eval spikes)
+`gmhs` from `vendor/microhs` (`make` bootstraps); C via `-optc`/FFI as before; `BNDOT_THREADS`
+still the thread knob. `../microhs-rust` (Rust runtime port) is a possible later target — not a
+dependency of this plan.
 
-Packed weights (~1.2 GB) sit resident in `ByteString` — a `ForeignPtr`, **off the combinator
-cell-heap**, loaded once and reused across all M4 tokens (no per-token disk re-read). The
-discipline that keeps eval flat: **strict per-row unpack/fold/discard** (transient working set
-O(row), never O(matrix)). The other M4 growth term is the **KV cache** (~38K ints/token →
-blows the 50M-cell heap near full context); keep it off-heap (`Storable` array) or cap context.
+## Risks / open questions
 
-## Representation: workhorse + showcase
-
-- **Workhorse** — strict two-bucket fold, primitive int components: the trit *routes* an
-  activation to `pos`, `neg`, or nowhere (`drop = K`), value = `pos − neg` at the end. No
-  negation or multiplication primitive anywhere. This is what M1–M3 run.
-- **Showcase** — the same row×activation reified as renderable data (the trit sequence as
-  combinator terms `I` / `C P` / `K`), evaluable to the identical number. Built only on small
-  slices. Keep the op reified (don't fuse it away) so an **iota-tree** rendering of the whole
-  net ("here is the LLM") stays derivable later — aspirational, not built now.
-
-## Open / deferred
-
-- Exact int8 clamp bound (-127 vs -128) — confirm against oracle in M1.
-- bf16-vs-Double drift budget across norms/RoPE — quantify at M2/M3.
-- M4 performance strategy (Storable/array hot loop, FFI) — deferred until measured.
+- **R1 rope_multi ≡ neox for text**: sections [11,11,10,0] with equal position streams should
+  collapse to plain neox over 64 dims — M3 oracle proves or disproves; fallback: implement true
+  mrope sections.
+- **R2 conv orientation**: kernel index vs window index in `ggml_ssm_conv` — M4 oracle.
+- **R3 l2_norm semantics**: ggml's eps placement — M4 oracle.
+- **R4 memory**: 3.79 GB weights + ~150 MB GDN states + KV; state threading copies ~150 MB/token
+  (48 pure-threaded 3.1 MB states) — acceptable vs O(10 s) tokens; make `gdn_step` write into a
+  caller-provided fresh buffer (stays pure at the Haskell layer).
+- **R5 26.9 B ≠ 24.8 B**: whitepaper says ~24.8 B language params; the GGUF reports 26.9 B (it
+  counts both untied 1.27 B embed + head). No action, just don't be surprised.

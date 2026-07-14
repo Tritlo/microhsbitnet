@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased — 1-bit branch]
+
+### Changed
+
+- **Rewrite target: 1-bit Bonsai 27B** (`prism-ml/Bonsai-27B-gguf`, Q1_0). The ternary/BitNet
+  path is dropped on this branch (main keeps it). New `PLAN.md` (M0–M6 ladder, pinned qwen35
+  hybrid-architecture facts from the prism llama.cpp fork @ `62061f91`), rewritten `CONTEXT.md`
+  (selection interpretation, B1Linear, GDN, W1A8). GGUF ground-truth dumps in
+  `test/bonsai-gguf-{kv,tensors}.txt`.
+
 ## [Unreleased]
 
 ### Added

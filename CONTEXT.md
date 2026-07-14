@@ -1,7 +1,7 @@
-# BitNetComb
+# BitNetComb (1-bit branch)
 
-Inference for the BitNet b1.58 2B4T model implemented in MicroHs, where the
-ternary weights are interpreted as list operations rather than numeric multiplications.
+Inference for the 1-bit Bonsai 27B model implemented in MicroHs, where the binary
+weights are interpreted as subset selection rather than numeric multiplications.
 
 ## Language
 
@@ -10,29 +10,37 @@ The target Haskell implementation — Lennart Augustsson's extended subset of Ha
 that compiles via combinators (`~/Code/MicroHs`). The implementation language and runtime.
 _Avoid_: GHC Haskell, "plain Haskell".
 
-**BitNet b1.58 2B4T**:
-The Microsoft model being run. A Llama-style decoder (30 layers, hidden 2560, GQA
-20/5 heads, RoPE, squared-ReLU FFN) whose linear layers are ternary. The specific
-artifact is the *packed* deployment variant.
-_Avoid_: BitNet (ambiguous — refers to the framework), b1.5B.
+**1-bit Bonsai 27B**:
+The PrismML model being run — a binary (Q1_0) re-expression of Qwen3.6-27B: 64 blocks,
+hidden 5120, hybrid attention (48 gated-delta-net layers + 16 full-attention layers,
+every 4th), untied 1-bit embeddings and LM head. The specific artifact is
+`models/bonsai-27b/Bonsai-27B-Q1_0.gguf`.
+_Avoid_: Bonsai (ambiguous — a whole model family), Qwen3.6 (the fp16 parent).
 
-**Trit**:
-A single ternary weight value, one of {-1, 0, +1}.
-_Avoid_: bit, ternary digit.
+**Bit (weight)**:
+A single binary weight, one of {-1, +1}, stored as one sign bit (LSB-first) with an
+fp16 scale shared per 128-weight group.
+_Avoid_: trit, sign (alone).
 
-**List-op interpretation**:
-The project's central idea: a trit names an operation on an activation rather than a
-multiplier — -1 = negate, 0 = drop, +1 = identity. A ternary dot product `W · x` is then
-a fold that maps each trit over its activation and sums the kept terms, e.g.
-`[x1,x2,x3] × [-1,0,+1] = -x1 + x3`. No multiplications in the matmul.
+**Selection interpretation**:
+The project's central idea, inherited from the ternary list-op thesis: a weight bit
+names *include* or *exclude*, not a multiplier. A binary dot product is
+`scale · (2·Σ_selected − Σ_all)` — selection plus one per-row correction; no
+per-weight negation, no multiplications in the matmul.
 
-**BitLinear**:
-A linear layer whose weight matrix is ternary (trits) with a single per-tensor scale.
-The unit to which the list-op interpretation applies.
-_Avoid_: linear, dense, projection (when specifically meaning the ternary kind).
+**B1Linear**:
+A linear layer whose weight matrix is Q1_0 (sign bits + group scales). The unit to
+which the selection interpretation applies. Includes the embedding table and LM head.
+_Avoid_: BitLinear (the ternary ancestor), linear/dense/projection (ambiguous).
 
-**W1.58A8**:
-The model's quantization scheme: 1.58-bit ternary **weights** (absmean per-tensor scale)
-and 8-bit integer **activations** (absmax per-token scale). Because activations are int8,
-the list-op fold is exact integer arithmetic.
-_Avoid_: "1-bit", int8 (alone, ambiguous between weights and activations).
+**GDN (gated delta net)**:
+The linear-attention layer kind (48 of 64): causal 4-tap conv, L2-normed q/k,
+per-head 128×128 recurrent state updated by the gated delta rule
+(`S ← S·e^g + k⊗((v − Sᵀk)·β)`), output gated by `silu(z)`.
+_Avoid_: SSM/Mamba (different recurrence), attention (alone).
+
+**W1A8**:
+The compute scheme: 1-bit weights (fp16 group-128 scales) and 8-bit integer
+activations quantized q8_0-style (per-32 absmax), so the selection fold is integer
+arithmetic rescaled once per group pair.
+_Avoid_: "1.58-bit", int8 (alone).
