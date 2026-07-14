@@ -12,7 +12,7 @@ module Loader
 
 import qualified Data.ByteString as BS
 import System.IO (openBinaryFile, hClose, IOMode(ReadMode), Handle)
-import Gguf (Gguf(..), GTensor(..), parseGguf, tensorBytes)
+import Gguf (Gguf(..), GTensor(..), parseGguf)
 
 chunkMax :: Int
 chunkMax = 1536 * 1024 * 1024
@@ -40,6 +40,9 @@ loadModel path = do
   where
     maxBytes = 8 * 1024 * 1024 * 1024
 
--- | A tensor's raw bytes as an O(1) view into the resident file.
-slice :: Gguf -> GTensor -> BS.ByteString
-slice g t = BS.take (tensorBytes t) (BS.drop (gtOff t) (gBytes g))
+-- | A tensor as a (whole file, byte offset) weight handle. NOT a ByteString
+-- view: MicroHs's substring runtime narrows offsets to a C int, so a slice
+-- starting past 2 GiB wraps — the C kernels resolve the offset in 64 bits
+-- instead (see Dot.W).
+slice :: Gguf -> GTensor -> (BS.ByteString, Int)
+slice g t = (gBytes g, gtOff t)

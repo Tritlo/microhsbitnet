@@ -57,6 +57,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   window position r (oldest first, per-channel contiguous); l2_norm = `x/max(√Σx², eps)`
   (double accumulator); softplus cutoff at 20. Layer-0 outputs match `test/oracle_m4.py`
   to ~3e-6 at pos0, ~1e-3 after three chained positions.
+- **M5 — end-to-end generation** (`src/Forward.hs`, `src/Chat.hs`, `src/Sample.hs` restored;
+  `b1argmax`/`b1topk` kernels): the full 64-block hybrid forward with pure state threading,
+  Q1_0 embedding lookup and LM head, ChatML wrapper (jinja-faithful, `<think>` prefix),
+  greedy + seeded temp/top-k/top-p sampling, C-side byte streaming. **Greedy parity: 32
+  raw-prompt tokens byte-identical to the fork's CPU `llama-completion -no-cnv --temp 0`**
+  ("…The capital of Iceland is **Reykjavík**. It is located on the southwestern coast…");
+  ChatML prompt ids match the fork's conversation mode exactly (+ the `<think>` suffix its
+  legacy template omits). ~1.0 s/token at 20 threads, 11.4 GB resident.
+  Two MicroHs land mines found and routed around: (1) the runtime narrows ByteString
+  substring offsets to a C int (`addForPtr`), so tensor slices past 2 GiB wrapped and
+  crashed — weights are now `Dot.W = (file, offset)` handles resolved with 64-bit pointer
+  arithmetic at the FFI boundary (upstream-report candidate); (2) `BS.putStr` re-encodes
+  bytes >127 as UTF-8 (mojibake for model bytes) — streaming output goes through a C
+  `fwrite` (`b1tok_write`).
 
 ## [Unreleased]
 

@@ -73,13 +73,14 @@ cfgFromGguf g = Cfg
 isAttnLayer :: Int -> Bool
 isAttnLayer i = (i + 1) `mod` 4 == 0
 
--- | One full-attention layer's tensors (Q1_0 packed weights + f32 norms).
+-- | One full-attention layer's tensors (Q1_0 packed weights + f32 norms),
+-- as (file, offset) weight handles.
 data AttnL = AttnL
-  { aNorm, aQ, aQN, aK, aKN, aV, aO :: BS.ByteString
-  , aPostNorm, aGate, aUp, aDown    :: BS.ByteString
+  { aNorm, aQ, aQN, aK, aKN, aV, aO :: W
+  , aPostNorm, aGate, aUp, aDown    :: W
   }
 
-tens :: Gguf -> String -> BS.ByteString
+tens :: Gguf -> String -> W
 tens g nm = case lookupTensor nm g of
   Just t  -> slice g t
   Nothing -> error ("missing tensor: " ++ nm)
@@ -105,8 +106,7 @@ loadAttnL g i = AttnL
 type KV = Maybe (BS.ByteString, BS.ByteString)
 
 -- | The shared FFN half of every block: x + down(silu(gate(norm x)) * up(norm x)).
-ffnStep :: Cfg -> BS.ByteString -> BS.ByteString -> BS.ByteString -> BS.ByteString
-        -> BS.ByteString -> BS.ByteString
+ffnStep :: Cfg -> W -> W -> W -> W -> BS.ByteString -> BS.ByteString
 ffnStep cfg postNorm wGate wUp wDown x =
   let hid = cHidden cfg
       ffn = cFfn cfg
@@ -119,9 +119,9 @@ ffnStep cfg postNorm wGate wUp wDown x =
 
 -- | One gated-delta-net layer's tensors.
 data GdnL = GdnL
-  { gNorm, gQKV, gZ, gBeta, gAlpha        :: BS.ByteString
-  , gConv, gDt, gA, gSNorm, gOut          :: BS.ByteString
-  , gPostNorm, gGate, gUp, gDown          :: BS.ByteString
+  { gNorm, gQKV, gZ, gBeta, gAlpha        :: W
+  , gConv, gDt, gA, gSNorm, gOut          :: W
+  , gPostNorm, gGate, gUp, gDown          :: W
   }
 
 loadGdnL :: Gguf -> Int -> GdnL

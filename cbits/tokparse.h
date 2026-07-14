@@ -20,4 +20,7 @@ int b1tok_decode(int id, void *out, int cap);
 /* the GGUF token_type of an id (1 = normal, 3 = control, ...). */
 int b1tok_ttype(int id);
 
+/* write raw bytes to stdout (bypasses MicroHs's UTF-8 re-encoding) + flush. */
+void b1tok_write(const void *buf, int n);
+
 #endif

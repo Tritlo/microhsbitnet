@@ -192,3 +192,12 @@ int b1tok_ttype(int id) {
   if (id < 0 || id >= g_nttypes) return 0;
   return (int)g_ttype_copy[id];
 }
+
+/* Write raw bytes to stdout and flush. MicroHs's BS.putStr re-encodes bytes
+ * >127 as UTF-8 characters (mojibake for already-UTF-8 model bytes), so the
+ * streaming output goes through C. */
+#include <stdio.h>
+void b1tok_write(const void *buf, int n) {
+  fwrite(buf, 1, (size_t)n, stdout);
+  fflush(stdout);
+}

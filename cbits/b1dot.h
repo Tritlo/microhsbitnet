@@ -4,6 +4,9 @@
 /* 1-bit (Q1_0) kernels */
 void b1matmul(const void *w, const void *x, int inDim, int outDim, float *out);
 void b1embed(const void *w, int row, int rowLen, float *out);
+int  b1argmax(const void *w, const void *x, int inDim, int vocab, float *bestVal);
+void b1topk(const void *w, const void *x, int inDim, int vocab,
+            int k, void *outIdx, void *outVal);
 
 /* f32 vector math */
 void bnrmsnorm(const void *w, const void *x, int n, float eps, float *out);

@@ -142,6 +142,86 @@ void b1matmul(const void *wv, const void *xv, int inDim, int outDim, float *out)
   free(qs);
 }
 
+/* The LM head's argmax: quantize the hidden vector once, then scan the whole
+ * vocab of Q1_0 rows. Earliest index wins ties. Returns argmax; *bestVal its
+ * logit. */
+int b1argmax(const void *wv, const void *xv, int inDim, int vocab, float *bestVal) {
+  const unsigned char *w = (const unsigned char *)wv;
+  const float *x = (const float *)xv;
+  int nb = inDim / 32;
+  signed char *qs = (signed char *)malloc((size_t)inDim + (size_t)nb * sizeof(float));
+  float *sc = (float *)(qs + inDim);
+  quant_q8(x, inDim, qs, sc);
+  size_t rowBytes = (size_t)(inDim / 128) * 18;
+  int bestI = 0;
+  float bestV = -INFINITY;
+  #pragma omp parallel num_threads(bn_threads())
+  {
+    int   li = 0;
+    float lv = -INFINITY;
+    int v;
+    #pragma omp for schedule(static)
+    for (v = 0; v < vocab; v++) {
+      float l = b1_row(w + (size_t)v * rowBytes, qs, sc, inDim);
+      if (l > lv) { lv = l; li = v; }
+    }
+    #pragma omp critical
+    {
+      if (lv > bestV || (lv == bestV && li < bestI)) { bestV = lv; bestI = li; }
+    }
+  }
+  free(qs);
+  *bestVal = bestV;
+  return bestI;
+}
+
+/* Top-K over the vocab of Q1_0 rows x the hidden vector, for sampling. Writes
+ * the k largest logits and their ids in DESCENDING order; k clamped to 64. */
+void b1topk(const void *wv, const void *xv, int inDim, int vocab,
+            int k, void *outIdxv, void *outValv) {
+  const unsigned char *w = (const unsigned char *)wv;
+  const float *x = (const float *)xv;
+  intptr_t *outIdx = (intptr_t *)outIdxv;
+  float    *outVal = (float *)outValv;
+  if (k > 64) k = 64;
+  if (k < 1)  k = 1;
+  int nb = inDim / 32;
+  signed char *qs = (signed char *)malloc((size_t)inDim + (size_t)nb * sizeof(float));
+  float *sc = (float *)(qs + inDim);
+  quant_q8(x, inDim, qs, sc);
+  size_t rowBytes = (size_t)(inDim / 128) * 18;
+  float gv[64]; intptr_t gi[64];          /* global top-k, ascending */
+  { int i; for (i = 0; i < k; i++) { gv[i] = -INFINITY; gi[i] = -1; } }
+  #pragma omp parallel num_threads(bn_threads())
+  {
+    float lv[64]; intptr_t li[64];
+    int i; for (i = 0; i < k; i++) { lv[i] = -INFINITY; li[i] = -1; }
+    int v;
+    #pragma omp for schedule(static)
+    for (v = 0; v < vocab; v++) {
+      float l = b1_row(w + (size_t)v * rowBytes, qs, sc, inDim);
+      if (l > lv[0]) {
+        int j = 0;
+        while (j + 1 < k && l > lv[j + 1]) { lv[j] = lv[j + 1]; li[j] = li[j + 1]; j++; }
+        lv[j] = l; li[j] = v;
+      }
+    }
+    #pragma omp critical
+    {
+      for (i = 0; i < k; i++) {
+        float l = lv[i]; intptr_t id = li[i];
+        if (l > gv[0]) {
+          int j = 0;
+          while (j + 1 < k && l > gv[j + 1]) { gv[j] = gv[j + 1]; gi[j] = gi[j + 1]; j++; }
+          gv[j] = l; gi[j] = id;
+        }
+      }
+    }
+  }
+  free(qs);
+  { int i; for (i = 0; i < k; i++) { outVal[i] = gv[k - 1 - i]; outIdx[i] = gi[k - 1 - i]; } }
+}
+
 /* Dequantize one Q1_0 row of rowLen weights (the embedding lookup). */
 void b1embed(const void *wv, int row, int rowLen, float *out) {
   const unsigned char *w = (const unsigned char *)wv + (size_t)row * (rowLen / 128) * 18;

@@ -16,6 +16,7 @@ module Tokenizer
   , encodeText
   , decodeBytes
   , tokenId
+  , putBytes
   , pretokenize
   ) where
 
@@ -39,6 +40,8 @@ foreign import ccall "tokparse.h b1tok_mlookup"
   c_mlookup :: CString -> Int -> CString -> Int -> IO Int
 foreign import ccall "tokparse.h b1tok_decode"
   c_decode :: Int -> Ptr Word8 -> Int -> IO Int
+foreign import ccall "tokparse.h b1tok_write"
+  c_write :: CString -> Int -> IO ()
 
 -- ---------- byte-level alphabet (byte -> codepoint) ----------
 
@@ -194,6 +197,11 @@ encodeText _ = concatMap (bpe . toByteLevel) . pretokenize
 -- | The id of an exact vocab string (e.g. a control token like "<|im_start|>").
 tokenId :: String -> Maybe Int
 tokenId = vlookup
+
+-- | Write raw bytes to stdout via C — MicroHs's @BS.putStr@ re-encodes bytes
+-- >127 as UTF-8 characters, garbling already-UTF-8 model bytes.
+putBytes :: BS.ByteString -> IO ()
+putBytes bs = unsafeUseAsCStringLen bs $ \ (p, n) -> c_write p n
 
 -- | Decode ids to model bytes (UTF-8 of the text).
 decodeBytes :: Tokenizer -> [Int] -> BS.ByteString
