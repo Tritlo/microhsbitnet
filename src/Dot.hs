@@ -13,6 +13,9 @@ module Dot
   , bnSplitQGate
   , bnSigmoidMul
   , bnSiluMul
+  , gdnConvSilu
+  , gdnL2Heads
+  , gdnStep
   , packF32
   , unpackF32
   ) where
@@ -46,6 +49,13 @@ foreign import ccall "b1dot.h bnsigmoid_mul"
   c_sigmoid_mul :: CString -> CString -> Int -> Ptr Float -> IO ()
 foreign import ccall "b1dot.h bnsilu_mul"
   c_silu_mul :: CString -> CString -> Int -> Ptr Float -> IO ()
+foreign import ccall "b1dot.h gdn_conv_silu"
+  c_gdn_conv :: CString -> CString -> CString -> Int -> Ptr Float -> IO ()
+foreign import ccall "b1dot.h gdn_l2norm_heads"
+  c_gdn_l2 :: CString -> Int -> Int -> Float -> Ptr Float -> IO ()
+foreign import ccall "b1dot.h gdn_step"
+  c_gdn_step :: CString -> CString -> CString -> CString -> CString -> CString
+             -> CString -> CString -> Int -> Int -> Int -> Ptr Float -> Ptr Float -> IO ()
 
 -- Run a C kernel that writes @n@ float32 results into a fresh buffer, returning
 -- the buffer as a ByteString ('packCStringLen' copies it out before it is freed).
@@ -125,6 +135,40 @@ bnSiluMul :: BS.ByteString -> BS.ByteString -> Int -> BS.ByteString
 bnSiluMul g u n = withOut n $ \ out ->
   unsafeUseAsCStringLen g $ \ (gp, _) ->
   unsafeUseAsCStringLen u $ \ (up, _) -> c_silu_mul gp up n out
+
+-- | Causal 4-tap depthwise conv + SiLU for one token: ring = previous 3
+-- channel vectors (oldest first), x = current, kernel per-channel contiguous.
+gdnConvSilu :: BS.ByteString -> BS.ByteString -> BS.ByteString -> Int -> BS.ByteString
+gdnConvSilu ring x kernel channels = withOut channels $ \ out ->
+  unsafeUseAsCStringLen ring   $ \ (rp, _) ->
+  unsafeUseAsCStringLen x      $ \ (xp, _) ->
+  unsafeUseAsCStringLen kernel $ \ (kp, _) -> c_gdn_conv rp xp kp channels out
+
+-- | Per-head L2 norm: @x / max(sqrt(sum x^2), eps)@ per head span.
+gdnL2Heads :: BS.ByteString -> Int -> Int -> Float -> BS.ByteString
+gdnL2Heads x nHeads headDim eps = withOut (nHeads * headDim) $ \ out ->
+  unsafeUseAsCStringLen x $ \ (xp, _) -> c_gdn_l2 xp nHeads headDim eps out
+
+-- | One gated-delta-rule token step over all heads. Returns the attention
+-- output (nV*d floats) and the updated state (nV*d*d floats, fresh buffer).
+gdnStep :: BS.ByteString -> BS.ByteString -> BS.ByteString -> BS.ByteString
+        -> BS.ByteString -> BS.ByteString -> BS.ByteString -> BS.ByteString
+        -> Int -> Int -> Int -> (BS.ByteString, BS.ByteString)
+gdnStep st q k v alphaP dt aArr betaP nV nK d = unsafePerformIO $
+  allocaBytes (nV * d * 4) $ \ outP ->
+  allocaBytes (nV * d * d * 4) $ \ stP -> do
+    unsafeUseAsCStringLen st     $ \ (sp, _) ->
+      unsafeUseAsCStringLen q      $ \ (qp, _) ->
+      unsafeUseAsCStringLen k      $ \ (kp, _) ->
+      unsafeUseAsCStringLen v      $ \ (vp, _) ->
+      unsafeUseAsCStringLen alphaP $ \ (ap, _) ->
+      unsafeUseAsCStringLen dt     $ \ (dp, _) ->
+      unsafeUseAsCStringLen aArr   $ \ (aap, _) ->
+      unsafeUseAsCStringLen betaP  $ \ (bp, _) ->
+        c_gdn_step sp qp kp vp ap dp aap bp nV nK d outP stP
+    o <- BS.packCStringLen (castPtr outP, nV * d * 4)
+    s <- BS.packCStringLen (castPtr stP, nV * d * d * 4)
+    return (o, s)
 
 -- | Serialize a Float vector to native little-endian float32 bytes.
 packF32 :: [Float] -> BS.ByteString

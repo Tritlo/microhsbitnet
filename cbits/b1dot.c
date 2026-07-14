@@ -279,3 +279,90 @@ void bnsilu_mul(const void *gv, const void *uv, int n, float *out) {
   const float *u = (const float *)uv;
   for (int i = 0; i < n; i++) out[i] = (g[i] / (1.0f + expf(-g[i]))) * u[i];
 }
+
+/* ---------- gated delta net (the 48 linear-attention layers) -------------- */
+
+/* Causal 4-tap depthwise conv + SiLU, one token: ring holds the previous
+ * 3 channel vectors (oldest first), x the current one; kernel is per-channel
+ * contiguous (ggml ssm_conv orientation: coefficient r pairs with window
+ * position r, 0 = oldest). */
+void gdn_conv_silu(const void *ringv, const void *xv, const void *kernelv,
+                   int channels, float *out) {
+  const float *ring = (const float *)ringv;
+  const float *x    = (const float *)xv;
+  const float *ker  = (const float *)kernelv;
+  for (int c = 0; c < channels; c++) {
+    float s = ring[0 * channels + c] * ker[c * 4 + 0]
+            + ring[1 * channels + c] * ker[c * 4 + 1]
+            + ring[2 * channels + c] * ker[c * 4 + 2]
+            + x[c]                   * ker[c * 4 + 3];
+    out[c] = s / (1.0f + expf(-s));
+  }
+}
+
+/* Per-head L2 norm: y = x / max(sqrt(sum x^2), eps), sum in double
+ * (ggml_compute_forward_l2_norm_f32 semantics). */
+void gdn_l2norm_heads(const void *xv, int nHeads, int headDim, float eps, float *out) {
+  const float *x = (const float *)xv;
+  for (int h = 0; h < nHeads; h++) {
+    const float *xh = x + h * headDim;
+    double ss = 0.0;
+    for (int i = 0; i < headDim; i++) ss += (double)(xh[i] * xh[i]);
+    float scale = 1.0f / fmaxf(sqrtf((float)ss), eps);
+    for (int i = 0; i < headDim; i++) out[h * headDim + i] = xh[i] * scale;
+  }
+}
+
+/* The gated delta rule, one token, all heads — mirrors the fused CPU op
+ * (ggml_compute_forward_gated_delta_net_one_chunk, non-KDA):
+ *   beta = sigmoid(betaP);  g = a * softplus(alphaP + dt)
+ *   S *= exp(g);  d[j] = (v[j] - sum_i S[i][j] k[i]) * beta
+ *   S[i][j] += k[i] d[j];  out[j] = sum_i S[i][j] q[i] / sqrt(d)
+ * State layout transposed: s[j*d + i]. q/k carry nK heads; v-head h uses
+ * q/k head (h % nK). state_out gets the updated copy (caller owns purity). */
+void gdn_step(const void *state_in, const void *qv, const void *kv, const void *vv,
+              const void *alphav, const void *dtv, const void *av, const void *betav,
+              int nV, int nK, int d, float *out, float *state_out) {
+  const float *q  = (const float *)qv;
+  const float *k  = (const float *)kv;
+  const float *v  = (const float *)vv;
+  const float *al = (const float *)alphav;
+  const float *dt = (const float *)dtv;
+  const float *a  = (const float *)av;
+  const float *bp = (const float *)betav;
+  const float scale = 1.0f / sqrtf((float)d);
+  memcpy(state_out, state_in, sizeof(float) * (size_t)nV * d * d);
+  int h;
+  #pragma omp parallel for num_threads(bn_threads()) schedule(static)
+  for (h = 0; h < nV; h++) {
+    float *S = state_out + (size_t)h * d * d;
+    const float *kh = k + (size_t)(h % nK) * d;
+    const float *qh = q + (size_t)(h % nK) * d;
+    const float *vh = v + (size_t)h * d;
+    float sp = al[h] + dt[h];
+    sp = (sp > 20.0f) ? sp : logf(1.0f + expf(sp));
+    float g = a[h] * sp;
+    float beta = 1.0f / (1.0f + expf(-bp[h]));
+    float eg = expf(g);
+    float delta[512]; /* d <= 512 */
+    for (int j = 0; j < d * d; j++) S[j] *= eg;
+    for (int j = 0; j < d; j++) {
+      float sum = 0.0f;
+      const float *Sj = S + (size_t)j * d;
+      for (int i = 0; i < d; i++) sum += Sj[i] * kh[i];
+      delta[j] = (vh[j] - sum) * beta;
+    }
+    for (int j = 0; j < d; j++) {
+      float *Sj = S + (size_t)j * d;
+      float dj = delta[j];
+      for (int i = 0; i < d; i++) Sj[i] += kh[i] * dj;
+    }
+    float *oh = out + (size_t)h * d;
+    for (int j = 0; j < d; j++) {
+      float sum = 0.0f;
+      const float *Sj = S + (size_t)j * d;
+      for (int i = 0; i < d; i++) sum += Sj[i] * qh[i];
+      oh[j] = sum * scale;
+    }
+  }
+}

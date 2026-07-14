@@ -34,13 +34,14 @@ $(MODEL):
 	curl -L --fail -C - -o $@ $(HF_BASE)/$(@F)
 
 # Fast path (import Dot -> link the b1dot kernel). Grows as milestones land.
-fast: m1 m3
+fast: m1 m3 m4
 # No fast path.
 plain: m0 testtok
 
 m0: ; $(MHS) M0 -obin/m0
 m1: ; $(MHS) $(KERNEL) M1 -obin/m1
 m3: ; $(MHS) $(KERNEL) M3 -obin/m3
+m4: ; $(MHS) $(KERNEL) M4 -obin/m4
 testtok: ; $(MHS) -Icbits cbits/tokparse.c TestTok -obin/testtok
 
-clean: ; rm -f bin/m0 bin/m1 bin/m3 bin/testtok
+clean: ; rm -f bin/m0 bin/m1 bin/m3 bin/m4 bin/testtok

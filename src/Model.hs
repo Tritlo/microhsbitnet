@@ -12,6 +12,11 @@ module Model
   , KV
   , attnStep
   , ffnStep
+  , GdnL(..)
+  , loadGdnL
+  , GdnState
+  , gdnInit
+  , gdnLayerStep
   ) where
 
 import qualified Data.ByteString as BS
@@ -31,6 +36,11 @@ data Cfg = Cfg
   , cEps     :: Float
   , cTheta   :: Float
   , cVocab   :: Int
+  , cConv    :: Int   -- ^ GDN conv kernel size (4)
+  , cKHeads  :: Int   -- ^ GDN k/q heads (ssm.group_count, 16)
+  , cVHeads  :: Int   -- ^ GDN v heads (ssm.time_step_rank, 48)
+  , cSDim    :: Int   -- ^ GDN head dim (ssm.state_size, 128)
+  , cInner   :: Int   -- ^ GDN value dim (ssm.inner_size, 6144)
   } deriving (Show)
 
 cfgFromGguf :: Gguf -> Cfg
@@ -47,6 +57,11 @@ cfgFromGguf g = Cfg
   , cVocab   = case lookupTensor "token_embd.weight" g of
                  Just t  -> last (gtShape t)
                  Nothing -> 248320
+  , cConv    = kvInt "qwen35.ssm.conv_kernel" 4 g
+  , cKHeads  = kvInt "qwen35.ssm.group_count" 16 g
+  , cVHeads  = kvInt "qwen35.ssm.time_step_rank" 48 g
+  , cSDim    = kvInt "qwen35.ssm.state_size" 128 g
+  , cInner   = kvInt "qwen35.ssm.inner_size" 6144 g
   }
   where
     kvFloat k d gg = case lookupKV k gg of
@@ -101,6 +116,77 @@ ffnStep cfg postNorm wGate wUp wDown x =
       h   = bnSiluMul gf uf ffn
       d   = b1Linear wDown h ffn hid
   in bnAdd x d hid
+
+-- | One gated-delta-net layer's tensors.
+data GdnL = GdnL
+  { gNorm, gQKV, gZ, gBeta, gAlpha        :: BS.ByteString
+  , gConv, gDt, gA, gSNorm, gOut          :: BS.ByteString
+  , gPostNorm, gGate, gUp, gDown          :: BS.ByteString
+  }
+
+loadGdnL :: Gguf -> Int -> GdnL
+loadGdnL g i = GdnL
+  { gNorm     = blk "attn_norm.weight"
+  , gQKV      = blk "attn_qkv.weight"
+  , gZ        = blk "attn_gate.weight"
+  , gBeta     = blk "ssm_beta.weight"
+  , gAlpha    = blk "ssm_alpha.weight"
+  , gConv     = blk "ssm_conv1d.weight"
+  , gDt       = blk "ssm_dt.bias"
+  , gA        = blk "ssm_a"
+  , gSNorm    = blk "ssm_norm.weight"
+  , gOut      = blk "ssm_out.weight"
+  , gPostNorm = blk "post_attention_norm.weight"
+  , gGate     = blk "ffn_gate.weight"
+  , gUp       = blk "ffn_up.weight"
+  , gDown     = blk "ffn_down.weight"
+  }
+  where blk s = tens g ("blk." ++ show i ++ "." ++ s)
+
+-- | A GDN layer's recurrent state: the conv ring (last conv-1 qkv vectors,
+-- oldest first) and the delta-rule state (nV heads of d*d, transposed layout).
+type GdnState = (BS.ByteString, BS.ByteString)
+
+-- | Zero state (zero bytes are IEEE 0.0).
+gdnInit :: Cfg -> GdnState
+gdnInit cfg =
+  let convDim = 2 * cKHeads cfg * cSDim cfg + cInner cfg
+      ringB   = (cConv cfg - 1) * convDim * 4
+      stateB  = cVHeads cfg * cSDim cfg * cSDim cfg * 4
+  in (BS.replicate ringB 0, BS.replicate stateB 0)
+
+-- | One GDN block: projections, causal conv + SiLU, per-head L2-normed q/k,
+-- the gated delta rule (in C), gated RMSNorm against silu(z), out-projection,
+-- then the FFN half. Returns the new residual stream and state.
+gdnLayerStep :: Cfg -> GdnL -> GdnState -> BS.ByteString -> (BS.ByteString, GdnState)
+gdnLayerStep cfg l (ring, st) x =
+  let hid     = cHidden cfg
+      eps     = cEps cfg
+      nK      = cKHeads cfg
+      nV      = cVHeads cfg
+      d       = cSDim cfg
+      keyDim  = nK * d
+      valDim  = cInner cfg
+      convDim = 2 * keyDim + valDim
+      xn      = bnRmsNorm (gNorm l) x hid eps
+      qkv     = b1Linear (gQKV l) xn hid convDim
+      z       = b1Linear (gZ l) xn hid valDim
+      betaP   = b1Linear (gBeta l) xn hid nV
+      alphaP  = b1Linear (gAlpha l) xn hid nV
+      conv    = gdnConvSilu ring qkv (gConv l) convDim
+      q0      = BS.take (keyDim * 4) conv
+      k0      = BS.take (keyDim * 4) (BS.drop (keyDim * 4) conv)
+      v       = BS.drop (2 * keyDim * 4) conv
+      qn      = gdnL2Heads q0 nK d eps
+      kn      = gdnL2Heads k0 nK d eps
+      (o, st') = gdnStep st qn kn v alphaP (gDt l) (gA l) betaP nV nK d
+      n1      = bnRmsNormHeads (gSNorm l) o nV d eps
+      gated   = bnSiluMul z n1 valDim
+      aOut    = b1Linear (gOut l) gated valDim hid
+      x1      = bnAdd x aOut hid
+      out     = ffnStep cfg (gPostNorm l) (gGate l) (gUp l) (gDown l) x1
+      ring'   = BS.append (BS.drop (convDim * 4) ring) qkv
+  in (out, (ring', st'))
 
 -- | One full-attention block at position @pos@: fused Q+gate projection,
 -- per-head q/k RMSNorm, neox RoPE on the first 'cRot' dims, GQA attention,

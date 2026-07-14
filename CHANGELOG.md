@@ -48,6 +48,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `test/oracle_m3.py` (f64 numpy modeling the quantized path) to ~1e-4 at pos0,
   ~1e-3 relative after three chained positions — the expected non-bit-exact-oracle
   envelope; bit-exact external validation lands at M5 (fork layer sums / greedy parity).
+- **M4 — gated-delta-net block** (`gdn_conv_silu`/`gdn_l2norm_heads`/`gdn_step` in C,
+  `GdnL`/`gdnLayerStep` in `Model.hs`, `src/M4.hs`): qkv/z/β/α projections, causal 4-tap
+  depthwise conv ring + SiLU, per-head L2-normed q/k (16 heads tiled onto 48 v-heads via
+  `h mod 16`), the non-KDA delta rule (`S ← S·eᵍ + k⊗((v − Sᵀk)·β)`, out `Sᵀq/√128`) with
+  β/g (sigmoid / `a·softplus(α+dt)`) computed inside the C step, gated per-head RMSNorm ×
+  `silu(z)`, `ssm_out`. **R2/R3 resolved from the fork source**: ssm_conv kernel coeff r =
+  window position r (oldest first, per-channel contiguous); l2_norm = `x/max(√Σx², eps)`
+  (double accumulator); softplus cutoff at 20. Layer-0 outputs match `test/oracle_m4.py`
+  to ~3e-6 at pos0, ~1e-3 after three chained positions.
 
 ## [Unreleased]
 

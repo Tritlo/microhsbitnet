@@ -17,4 +17,12 @@ void bnsplit_qgate(const void *qg, int nHeads, int headDim, float *q, float *gat
 void bnsigmoid_mul(const void *g, const void *a, int n, float *out);
 void bnsilu_mul(const void *g, const void *u, int n, float *out);
 
+/* gated delta net */
+void gdn_conv_silu(const void *ring, const void *x, const void *kernel,
+                   int channels, float *out);
+void gdn_l2norm_heads(const void *x, int nHeads, int headDim, float eps, float *out);
+void gdn_step(const void *state_in, const void *q, const void *k, const void *v,
+              const void *alpha, const void *dt, const void *a, const void *beta,
+              int nV, int nK, int d, float *out, float *state_out);
+
 #endif
