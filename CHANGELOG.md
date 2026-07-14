@@ -38,6 +38,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (qwen35 leaves it off, unlike llama3). All 27 corpus cases in `test/tok-cases.txt` —
   CJK, emoji + skin tones, Icelandic, contractions, whitespace/newline runs — match the
   fork's `llama-tokenize --ids` exactly (`test/oracle_m2.py`), round-trips included.
+- **M3 — full-attention block** (`src/Model.hs`, `src/M3.hs`; new kernels
+  `bnrmsnorm_heads`/`bnsplit_qgate`/`bnsigmoid_mul`/`bnsilu_mul`): fused Q+gate projection
+  (interleaved 256+256 per head), per-head QK RMSNorm, partial neox RoPE (64 of 256 dims,
+  θ=1e7), GQA 24/4 attention, sigmoid output gate, SwiGLU FFN, residual skeleton.
+  **R1 resolved**: `test/rope_oracle.c` calls the fork's actual `ggml_rope_multi`
+  (IMROPE, sections [11,11,10,0]) with equal text positions — max diff vs plain neox
+  2.4e-7, so `bnrope` is exact. Layer-3 block on chained synthetic inputs matches
+  `test/oracle_m3.py` (f64 numpy modeling the quantized path) to ~1e-4 at pos0,
+  ~1e-3 relative after three chained positions — the expected non-bit-exact-oracle
+  envelope; bit-exact external validation lands at M5 (fork layer sums / greedy parity).
 
 ## [Unreleased]
 

@@ -6,9 +6,13 @@ module Dot
   ( b1Linear
   , b1EmbedRow
   , bnRmsNorm
+  , bnRmsNormHeads
   , bnRope
   , bnAttend
   , bnAdd
+  , bnSplitQGate
+  , bnSigmoidMul
+  , bnSiluMul
   , packF32
   , unpackF32
   ) where
@@ -34,6 +38,14 @@ foreign import ccall "b1dot.h bnattend"
   c_attend :: CString -> CString -> CString -> Int -> Int -> Int -> Int -> Float -> Ptr Float -> IO ()
 foreign import ccall "b1dot.h bnadd"
   c_add :: CString -> CString -> Int -> Ptr Float -> IO ()
+foreign import ccall "b1dot.h bnrmsnorm_heads"
+  c_rmsnorm_heads :: CString -> CString -> Int -> Int -> Float -> Ptr Float -> IO ()
+foreign import ccall "b1dot.h bnsplit_qgate"
+  c_split_qgate :: CString -> Int -> Int -> Ptr Float -> Ptr Float -> IO ()
+foreign import ccall "b1dot.h bnsigmoid_mul"
+  c_sigmoid_mul :: CString -> CString -> Int -> Ptr Float -> IO ()
+foreign import ccall "b1dot.h bnsilu_mul"
+  c_silu_mul :: CString -> CString -> Int -> Ptr Float -> IO ()
 
 -- Run a C kernel that writes @n@ float32 results into a fresh buffer, returning
 -- the buffer as a ByteString ('packCStringLen' copies it out before it is freed).
@@ -84,6 +96,35 @@ bnAdd :: BS.ByteString -> BS.ByteString -> Int -> BS.ByteString
 bnAdd a b n = withOut n $ \ out ->
   unsafeUseAsCStringLen a $ \ (ap, _) ->
   unsafeUseAsCStringLen b $ \ (bp, _) -> c_add ap bp n out
+
+-- | Per-head RMSNorm (the q/k norms): nHeads spans of headDim, shared weight.
+bnRmsNormHeads :: BS.ByteString -> BS.ByteString -> Int -> Int -> Float -> BS.ByteString
+bnRmsNormHeads w x nHeads headDim eps = withOut (nHeads * headDim) $ \ out ->
+  unsafeUseAsCStringLen w $ \ (wp, _) ->
+  unsafeUseAsCStringLen x $ \ (xp, _) -> c_rmsnorm_heads wp xp nHeads headDim eps out
+
+-- | Deinterleave the fused Q projection into (query, gate) buffers.
+bnSplitQGate :: BS.ByteString -> Int -> Int -> (BS.ByteString, BS.ByteString)
+bnSplitQGate qg nHeads headDim = unsafePerformIO $
+  allocaBytes (n * 4) $ \ qp ->
+  allocaBytes (n * 4) $ \ gp -> do
+    unsafeUseAsCStringLen qg $ \ (p, _) -> c_split_qgate p nHeads headDim qp gp
+    q <- BS.packCStringLen (castPtr qp, n * 4)
+    g <- BS.packCStringLen (castPtr gp, n * 4)
+    return (q, g)
+  where n = nHeads * headDim
+
+-- | Output gate: @a * sigmoid(g)@ over @n@ floats.
+bnSigmoidMul :: BS.ByteString -> BS.ByteString -> Int -> BS.ByteString
+bnSigmoidMul g a n = withOut n $ \ out ->
+  unsafeUseAsCStringLen g $ \ (gp, _) ->
+  unsafeUseAsCStringLen a $ \ (ap, _) -> c_sigmoid_mul gp ap n out
+
+-- | SwiGLU elementwise: @silu(g) * u@ over @n@ floats.
+bnSiluMul :: BS.ByteString -> BS.ByteString -> Int -> BS.ByteString
+bnSiluMul g u n = withOut n $ \ out ->
+  unsafeUseAsCStringLen g $ \ (gp, _) ->
+  unsafeUseAsCStringLen u $ \ (up, _) -> c_silu_mul gp up n out
 
 -- | Serialize a Float vector to native little-endian float32 bytes.
 packF32 :: [Float] -> BS.ByteString

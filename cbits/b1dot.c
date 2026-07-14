@@ -239,3 +239,43 @@ void bnadd(const void *av, const void *bv, int n, float *out) {
   int i;
   for (i = 0; i < n; i++) out[i] = a[i] + b[i];
 }
+
+/* Per-head RMSNorm: each of nHeads spans of headDim normalized independently
+ * against the shared headDim-long weight (the q/k norms). */
+void bnrmsnorm_heads(const void *wv, const void *xv, int nHeads, int headDim,
+                     float eps, float *out) {
+  const float *w = (const float *)wv;
+  const float *x = (const float *)xv;
+  for (int h = 0; h < nHeads; h++) {
+    const float *xh = x + h * headDim;
+    float *oh = out + h * headDim;
+    float ss = 0.0f;
+    for (int i = 0; i < headDim; i++) ss += xh[i] * xh[i];
+    float s = 1.0f / sqrtf(ss / (float)headDim + eps);
+    for (int i = 0; i < headDim; i++) oh[i] = w[i] * (xh[i] * s);
+  }
+}
+
+/* Deinterleave the fused Q projection: per head, headDim query dims then
+ * headDim gate dims (stride 2*headDim). */
+void bnsplit_qgate(const void *qgv, int nHeads, int headDim, float *q, float *gate) {
+  const float *qg = (const float *)qgv;
+  for (int h = 0; h < nHeads; h++) {
+    memcpy(q    + h * headDim, qg + h * 2 * headDim,           sizeof(float) * (size_t)headDim);
+    memcpy(gate + h * headDim, qg + h * 2 * headDim + headDim, sizeof(float) * (size_t)headDim);
+  }
+}
+
+/* Output gate: out[i] = a[i] * sigmoid(g[i]). */
+void bnsigmoid_mul(const void *gv, const void *av, int n, float *out) {
+  const float *g = (const float *)gv;
+  const float *a = (const float *)av;
+  for (int i = 0; i < n; i++) out[i] = a[i] / (1.0f + expf(-g[i]));
+}
+
+/* SwiGLU elementwise: out[i] = silu(g[i]) * u[i]. */
+void bnsilu_mul(const void *gv, const void *uv, int n, float *out) {
+  const float *g = (const float *)gv;
+  const float *u = (const float *)uv;
+  for (int i = 0; i < n; i++) out[i] = (g[i] / (1.0f + expf(-g[i]))) * u[i];
+}
