@@ -22,6 +22,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Q1_0/f16/f32 spot decoders. Verified against `test/oracle_m0.py` (fork gguf-py + numpy):
   offsets, shapes, F32 values, Q1_0 signs and group scales all match. The ternary-path
   modules, oracles, and Makefile targets are deleted; `make` now fetches the Bonsai GGUF.
+- **M1 — Q1_0 kernel** (`cbits/b1dot.c`, `src/Dot.hs`, `src/M1.hs`): fused B1Linear —
+  q8_0-style activation quant (per-32 fp16-round-tripped scales, ported ggml fp16
+  conversions) + the bit-select row dot, mirroring the fork's
+  `ggml_vec_dot_q1_0_q8_0_generic` float order exactly; `b1embed` row dequant; the f32
+  helpers (rmsnorm/attend/add) carry over and rope gains partial-rotary (`nRot < headDim`).
+  Verified on the real `blk.0.attn_qkv` (5120→10240) against `test/oracle_m1.py`: spot rows
+  float-identical, full-output sum to 3e-6, embedding row exact. (The oracle's vectorized
+  check initially "failed" — a numpy `uint8` wraparound in `bits*2-1`, not a kernel bug.)
 
 ## [Unreleased]
 

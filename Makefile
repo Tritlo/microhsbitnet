@@ -34,10 +34,11 @@ $(MODEL):
 	curl -L --fail -C - -o $@ $(HF_BASE)/$(@F)
 
 # Fast path (import Dot -> link the b1dot kernel). Grows as milestones land.
-fast:
+fast: m1
 # No fast path.
 plain: m0
 
 m0: ; $(MHS) M0 -obin/m0
+m1: ; $(MHS) $(KERNEL) M1 -obin/m1
 
-clean: ; rm -f bin/m0
+clean: ; rm -f bin/m0 bin/m1
