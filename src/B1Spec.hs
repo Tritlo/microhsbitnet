@@ -34,14 +34,36 @@ quantize v =
       q    = if d == 0 then map (const 0) g else map (\ x -> round (x / d)) g
   in (d, q) : quantize rest
 
--- | One selected-sum over a group: a fold that *includes or excludes* each
--- activation by its weight bit — the whole thesis in four lines.
+-- | THE spec: a 1-bit weight row is a *filter*. Zip the bits with the
+-- activations, keep the selected, sum. Each bit literally reduces as a Church
+-- boolean — keep the cons or drop it.
+sel :: [Bool] -> [Int] -> Int
+sel ws = sum . map snd . filter fst . zip ws
+
+-- The 32 bits of a group as booleans, LSB-first per byte.
+groupBits :: BS.ByteString -> Int -> [Bool]
+groupBits bs o = [ testBit (BS.index bs (o + i)) j | i <- [0 .. 3], j <- [0 .. 7] ]
+
+-- | The workhorse spec: the same selection as one conditional add per weight,
+-- no intermediate lists (the dotRow analogue; bit-identical to 'sel').
 selSum :: Int -> [Int] -> Int
 selSum _ []       = 0
 selSum b (q : qs) = (if b .&. 1 == 1 then q else 0) + selSum (b `shiftR` 1) qs
 
--- | The pure 1-bit row dot: blocks of (fp16 scale d0, 16 sign bytes) against
--- quantized groups with per-group scales and precomputed group totals.
+-- | The filter-spec row dot: per 128-block, d0 · Σₖ scₖ·(2·sel − tot) with
+-- 'sel' the literal zip/filter/sum.
+dotFilter :: BS.ByteString -> Int -> [(Float, [Int], Int)] -> Float
+dotFilter bs rowOff groups = go rowOff groups
+  where
+    go _ [] = 0
+    go o gs =
+      let (blk, rest) = splitAt 4 gs
+          d0 = f16At bs o
+          inner = sum [ sc * fromIntegral (2 * sel (groupBits bs (o + 2 + 4 * k)) qs - tot)
+                      | (k, (sc, qs, tot)) <- zip [0 ..] blk ]
+      in d0 * inner + go (o + 18) rest
+
+-- | The workhorse row dot on the same math, folding bytes directly.
 dotBits :: BS.ByteString -> Int -> [(Float, [Int], Int)] -> Float
 dotBits bs rowOff groups = go rowOff groups
   where
@@ -49,9 +71,9 @@ dotBits bs rowOff groups = go rowOff groups
     go o gs =
       let (blk, rest) = splitAt 4 gs
           d0 = f16At bs o
-          inner = sum [ sc * fromIntegral (2 * sel - tot)
+          inner = sum [ sc * fromIntegral (2 * sel' - tot)
                       | (k, (sc, qs, tot)) <- zip [0 ..] blk
-                      , let sel = selBytes (o + 2 + 4 * k) qs ]
+                      , let sel' = selBytes (o + 2 + 4 * k) qs ]
       in d0 * inner + go (o + 18) rest
     selBytes o qs =
       let (a, r1) = splitAt 8 qs
@@ -69,22 +91,28 @@ main = do
       base   = gtOff t
       rowB   = (5120 `div` 128) * 18
       qgs    = [ (d, q, sum q) | (d, q) <- quantize xs ]
+      rowF r = dotFilter (gBytes g) (base + r * rowB) qgs
       row r  = dotBits (gBytes g) (base + r * rowB) qgs
 
-  -- correctness: rows 0..3 vs the C kernel (tolerance — the spec skips the
-  -- fp16 round-trip of activation scales)
+  -- correctness: the two specs agree exactly; vs the C kernel with tolerance
+  -- (the specs skip the fp16 round-trip of activation scales)
   let cOut = take 4 (unpackF32 (b1Linear (gBytes g, base) (packF32 xs) 5120 10240))
-  putStrLn ("spec rows 0..3: " ++ show (map row [0 .. 3]))
-  putStrLn ("C    rows 0..3: " ++ show cOut)
+  putStrLn ("filter spec rows 0..3: " ++ show (map rowF [0 .. 3]))
+  putStrLn ("fold spec   rows 0..3: " ++ show (map row [0 .. 3]))
+  putStrLn ("C kernel    rows 0..3: " ++ show cOut)
 
   t0 <- getTimeMilli
-  let s32 = sum (map row [0 .. 31])
-  s32 `seq` return ()
+  let sF = sum (map rowF [0 .. 31])
+  sF `seq` return ()
   t1 <- getTimeMilli
-  let msRow    = fromIntegral (t1 - t0) / 32 :: Double
-      sMatmul  = msRow * 10240 / 1000
-      sToken   = msRow / 1000 / 5120 * 25.6e9
-  putStrLn ("32 rows (5120 wide): " ++ show (t1 - t0) ++ " ms  (" ++ show msRow ++ " ms/row)")
-  putStrLn ("extrapolated: qkv matmul (10240 rows) ~ " ++ show sMatmul ++ " s")
-  putStrLn ("extrapolated: one full token (~25.6e9 weights) ~ " ++ show sToken ++ " s"
-            ++ " (~" ++ show (sToken / 3600) ++ " h)")
+  let s32 = sum (map row [32 .. 63])
+  s32 `seq` return ()
+  t2 <- getTimeMilli
+  let bench nm ms =
+        let msRow   = fromIntegral ms / 32 :: Double
+            sToken  = msRow / 1000 / 5120 * 25.6e9
+        in putStrLn (nm ++ ": " ++ show ms ++ " ms/32 rows  (" ++ show msRow
+                     ++ " ms/row;  matmul ~" ++ show (msRow * 10240 / 1000)
+                     ++ " s;  token ~" ++ show (sToken / 3600) ++ " h)")
+  bench "filter spec (sum.map snd.filter fst.zip)" (t1 - t0)
+  bench "fold spec   (one conditional add/weight)" (t2 - t1)
