@@ -39,7 +39,7 @@ $(BUILD)/prepare-network: PrepareNetwork.hs $(wildcard $(ROOT)/src/*.hs) $(ROOT)
 	@mkdir -p $(BUILD)
 	cd $(ROOT) && vendor/microhs/bin/gmhs -ispike/ccc -isrc -optc -fno-fast-math -optc -ffp-contract=off PrepareNetwork -Icbits cbits/bndot.c cbits/tokparse.c -obin/ccc-spike/prepare-network
 
-$(BUILD)/web/WebMain.c: WebMain.hs WebFFI.hs WebBrowser.hs WebJSON.hs WebModel.hs WebApp.hs WebFixtures.hs WebTensor.hs Programs.hs LayerPrograms.hs Rotary.hs LayerProgram.hs NetworkProgram.hs $(ROOT)/src/Safetensors.hs
+$(BUILD)/web/WebMain.c: WebMain.hs WebFFI.hs WebBrowser.hs WebGPU.hs WebJSON.hs WebModel.hs WebApp.hs WebFixtures.hs WebTensor.hs Programs.hs LayerPrograms.hs Rotary.hs LayerProgram.hs NetworkProgram.hs $(ROOT)/src/Safetensors.hs
 	@mkdir -p $(BUILD)/web
 	cd $(ROOT) && vendor/microhs/bin/gmhs -c -ispike/ccc -isrc WebMain -obin/ccc-spike/web/WebMain.c
 
