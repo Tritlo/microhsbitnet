@@ -1,27 +1,36 @@
 module WebFFI where
 
 import Foreign.C.String (CString)
+import Foreign.Ptr (Ptr)
 
--- | Start host work. The host must defer completion until this call returns.
-foreign import javascript "return globalThis.microhsGPUStart(UTF8ToString($0))"
-    gpuStart :: CString -> IO Int
+-- | Submit a generic request. The host completes it after this call returns.
+foreign import javascript "globalThis.microhsBrowser.request($0, UTF8ToString($1))"
+    browserRequest :: Int -> CString -> IO ()
 
--- | Read one retained GPU result after asynchronous host work completes.
-foreign import javascript "return globalThis.microhsGPUResultAt($0)"
-    gpuResultAt :: Int -> IO Double
+-- | Read the byte length of an opaque host buffer.
+foreign import javascript "return globalThis.microhsBrowser.size($0)"
+    hostSize :: Int -> IO Int
 
--- | Read one source-generated reference value.
-foreign import javascript "return globalThis.microhsGPUReferenceAt($0)"
-    gpuReferenceAt :: Int -> IO Double
+-- | Read one bounded scalar from an opaque host buffer.
+foreign import javascript "return globalThis.microhsBrowser.number($0, $1, UTF8ToString($2))"
+    hostNumber :: Int -> Int -> CString -> IO Double
 
--- | Find a model weight or a persistent cache by name.
-foreign import javascript "return globalThis.microhsLayer.weight(UTF8ToString($0))"
-    findWeight :: CString -> IO Int
+-- | Copy one host byte range into an allocated WASM array.
+foreign import javascript "globalThis.microhsBrowser.copy($0, $1, $2, HEAPU8, $3)"
+    copyHostBytes :: Int -> Int -> Int -> Ptr () -> IO ()
 
--- | Encode an array operation without host numerical computation.
-foreign import javascript "return globalThis.microhsLayer.op(UTF8ToString($0), $1, $2, $3, $4, $5)"
-    encode :: CString -> Int -> Int -> Int -> Int -> Double -> IO Int
+-- | Release an opaque host buffer. Repeated calls have no effect.
+foreign import javascript "globalThis.microhsBrowser.drop($0)"
+    dropHost :: Int -> IO ()
 
--- | Select one position from the source-derived constant table on the GPU.
-foreign import javascript "globalThis.microhsLayer.rotary($0)"
-    selectRotary :: Int -> IO ()
+-- | Append one application message to the browser log.
+foreign import javascript "globalThis.microhsBrowser.log(UTF8ToString($0))"
+    browserLog :: CString -> IO ()
+
+-- | Read the browser's monotonic clock in milliseconds.
+foreign import javascript "return globalThis.microhsBrowser.clock()"
+    clock :: IO Double
+
+-- | Publish the application result as JSON.
+foreign import javascript "globalThis.microhsBrowser.report(UTF8ToString($0))"
+    report :: CString -> IO ()

@@ -57,8 +57,8 @@ try {
   const query = new URLSearchParams();
   if (process.env.WEBGPU_STRICT === "1") query.set("strict", "1");
   await page.goto(`http://127.0.0.1:${address.port}/web/index.html?${query}`);
-  await page.waitForFunction(() => globalThis.microhsCheck !== undefined, undefined, { timeout: 600_000 });
-  const result = await page.evaluate(() => globalThis.microhsCheck);
+  await page.waitForFunction(() => (globalThis as unknown as { microhsCheck?: unknown }).microhsCheck !== undefined, undefined, { timeout: 600_000 });
+  const result = await page.evaluate(() => (globalThis as unknown as { microhsCheck?: { passed: boolean; error?: string; [key: string]: unknown } }).microhsCheck);
   await writeFile(resolve(root, "web-result.json"), JSON.stringify({ browserVersion: browser.version(), strictMathDevelopmentProfile: process.env.WEBGPU_STRICT === "1", ...result }, null, 2) + "\n");
   if (!result?.passed) throw new Error(result?.error ?? "Browser check failed");
   if (pageErrors.length) throw pageErrors[0];

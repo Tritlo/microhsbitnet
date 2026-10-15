@@ -54,7 +54,8 @@ Build time: GHC runs the compiler driver
 
 Build time: stock MicroHs compiles the control program
 
-  WebMain.hs + LayerProgram.hs + NetworkProgram.hs + WebFFI.hs
+  WebMain.hs + WebApp.hs + WebModel.hs + WebTensor.hs
+      + LayerProgram.hs + NetworkProgram.hs + WebBrowser.hs + WebFFI.hs
         │ gmhs -c
         ▼
   WebMain.c + upstream MicroHs evaluator
@@ -64,7 +65,7 @@ Build time: stock MicroHs compiles the control program
 
 Run time:
 
-  MicroHs WASM → JavaScript FFI → TypeScript buffer/dispatch host
+  MicroHs application and tensor planning → JavaScript FFI → generic browser bridge
         → generated WGSL → physical WebGPU device
         → readback → fixture checks and network diagnostics
 ```
@@ -227,8 +228,29 @@ the real-matrix references from the categorical CPU fixtures. The next job start
 only after MicroHs accepts the preceding result. No C numerical kernel or
 Asyncify bridge is linked into this WASM module.
 
-The TypeScript host manages WebGPU buffers and dispatch. It has no numerical
-shader bodies. `Arrays.hs` supplies the array execution templates. The supported
+`WebApp.hs` owns model setup, prompt generation, EOS decisions, and diagnostics.
+`WebModel.hs` parses metadata and chooses tensor byte ranges. `WebTensor.hs`
+owns tensor shapes, named weights, cache positions, resource lifetimes, and
+dispatch plans. `WebFixtures.hs` owns the fixture sequence and checks.
+
+`web/bridge.ts` is a generic browser binding, compiled to JavaScript. It stores
+opaque browser objects and performs HTTP, WebGPU, typed-array, and asynchronous
+completion operations. It has no model names, tensor shapes, prompt loops,
+EOS policy, or numerical shader bodies. `WebBrowser.hs` exposes these operations
+to MicroHs and retains suspended continuations. Commands for one token are
+submitted as a batch rather than as asynchronous calls for every GPU API method.
+The JavaScript FFI is synchronous. `WebBrowser.hs` stores one request ticket and
+its continuation before it calls JavaScript. The bridge defers completion until
+WASM returns. It then calls `browserComplete` with that ticket. MicroHs rejects
+stale tickets and resumes the application without Asyncify.
+
+`WebJSON.hs` retains integral command values as `Int`. Converting each handle to
+`Double` before JSON formatting added substantial WASM interpreter overhead.
+Weight representation checks run on resident GPU buffers. Only their status
+words return to MicroHs; the application does not scan weights through scalar
+FFI calls.
+
+`Arrays.hs` supplies the array execution templates. The supported
 source expressions supply their numerical bodies. The test starts a local HTTP
 server and installed Chrome. It rejects missing and software adapters. `CHROME`
 can select a different Chrome executable.
@@ -236,6 +258,39 @@ can select a different Chrome executable.
 `WebFFI.hs` contains all JavaScript foreign imports. The pinned compiler numbers
 these imports per module, then removes duplicates by number. Imports in separate
 modules can collide. The single bridge module avoids this compiler limitation.
+
+### Reusable execution plans
+
+MicroHs prepares four network plans before the first prompt: prefill and decode,
+each with and without layer checkpoints. The MicroHs tensor program runs once
+to prepare each plan. Shape, tensor-role, and operation-order checks run during preparation.
+`WebTensor.hs` pools GPU buffers by allocation slot, byte size, and usage. It
+shares compatible buffers across plans. It interns uniforms by representation
+and contents. Activation, scratch, uniform, and readback buffers remain allocated
+until the engine closes.
+
+MicroHs chooses the plan for each position. It also selects the embedding chunk
+and row, checks consecutive cache positions, and supplies six numeric arguments:
+chunk index, row, cache byte offset, rotary byte offset, attention prefix length,
+and position. It commits cache positions only after successful execution and
+readback. No model operation, shape rule, token decision, or EOS decision is
+implemented in the browser bridge.
+
+The bridge exposes generic `plan`, `run`, and host-buffer upload commands.
+A plan contains dispatch, copy, uniform-write, and clear operations. Numeric
+argument references use `["arg", index]`. Binding alternatives come from
+MicroHs; the bridge creates their bind groups once. It checks argument ranges
+and resource lifetimes before execution. Adjacent dispatches share a compute
+pass. Each run creates a fresh command encoder but reuses buffers and bind
+groups. The status buffer is cleared before result checks. GPU command buffers
+are submitted once, not reused after submission.
+
+The three standalone layer fixtures reuse one plan with different input buffers
+and consecutive cache positions. Full-network comparisons stream pairs of Float
+values through `withFloats` in MicroHs. The comparison checks finite binary32
+values before conversion and accumulates errors in ascending Double order.
+It preserves every comparison and first-mismatch record without constructing
+diagnostic value lists. Borrowed CPU buffers are freed on success and failure.
 
 In an earlier fixture run on 2026-10-15, Chrome on Apple M4 reported
 `apple metal-3`. All five cases passed
@@ -321,10 +376,11 @@ The build writes its outputs to `bin/ccc-spike/`:
 | `generated.metal`, `generated.wgsl` | Scalar and packed-matrix kernels |
 | `bitlinear.wgsl` | Activation quantization and ternary projection kernels |
 | `layer.wgsl`, `head.wgsl` | Decoder operations, embedding lookup, head, and argmax |
+| `checks.wgsl` | GPU checks for packed fields, finite weights, and head results |
 | `rotary.c`, `rotary.bin` | Generated constant evaluator and its coefficient table |
 | `cases/`, `layer-cases/`, `network-cases/` | Generated independent reference inputs and outputs |
 | `web/microhs.mjs`, `web/microhs.wasm` | MicroHs WASM runtime and JavaScript loader |
-| `web/` | Compiled TypeScript host and browser page |
+| `web/bridge.js` | Compiled generic browser bridge |
 | `web-result.json` | Adapter, timings, fixture checks, and network diagnostics |
 
 These files are build outputs, not source files to edit or commit.
@@ -366,20 +422,63 @@ table. The GPU copies the required 512-byte row for each position. This table
 matches all 262,144 optimized C coefficients exactly on this host. No C model
 kernel is linked into WASM.
 
-### Result
+### Validated application boundary
+
+The 2026-10-15 migration passes the stock MicroHs and Emscripten build, strict
+TypeScript build, all 16 browser fixture checks, and all five native Metal
+checks. Separate checks reject NaN input, an invalid packed field, a NaN norm
+weight, an out-of-bounds plan offset, and a released plan dependency.
+No neural application logic remains in TypeScript. The generic browser bridge
+has 672 source lines, including reusable command execution. The separate Node
+check driver has 68 lines.
+
+The bridge keeps downloaded weight bytes in opaque host buffers. Haskell chooses
+their GPU allocations and upload commands without copying bulk weights into
+WASM. BF16 norm weights use the existing GPU embedding decoder to produce FP32
+norm buffers. Haskell-generated representation checks validate packed fields
+and finite BF16 values on the GPU. Head-result validation also runs on the GPU.
+Only metadata, scalar scales, and diagnostic readbacks need CPU inspection.
+
+The six-prompt run records these residency counters:
+
+| Counter | Value |
+| --- | ---: |
+| Decoder and final-norm buffers | 331 |
+| Shared embedding/head chunks | 8 |
+| Raw weight payload bytes | 1,178,562,560 |
+| Resident model-buffer bytes after norm conversion | 1,179,443,200 |
+| Bulk model-weight bytes copied into WASM | 0 |
+| Prepared network plans | 4 |
+| Network GPU submissions | 209 |
+| New GPU buffers during network execution | 0 |
+| New bind groups during network execution | 0 |
+| New plans during network execution | 0 |
+| Resident GPU bytes after plan setup and after execution | 1,505,591,060 |
+
+Weights upload once for all six cases. The GPU retains these buffers until the
+suite finishes. Cache positions reset between cases. Plan setup adds
+325,098,760 bytes: the 314,572,800-byte KV cache and 10,525,960 bytes of reusable
+scratch, activation, uniform, and readback buffers. Resident bytes do not change
+during the 209 positions. The application releases all plan resources when the
+engine closes. The total WASM copy counter is not zero: it includes JSON
+responses, scalar checks, and diagnostic vectors.
+
+### Result after the application migration
 
 The 2026-10-15 run used Chrome 155.0.8059.40 on Apple M4. All six cases completed
 with GPU-selected tokens. Scalar, packed-matrix, BitLinear, and standalone layer
-checks passed their existing requirements.
+checks passed their existing requirements. All 52 generated tokens are identical
+to the previous TypeScript-controlled and uncached MicroHs runs. All 950
+diagnostic records are also identical to the uncached MicroHs run.
 
-| Case | Prompt tokens | Generated tokens | Tokens matching C |
-| --- | ---: | ---: | ---: |
-| hello | 8 | 10 | 10 |
-| question | 13 | 10 | 10 |
-| arithmetic | 20 | 2 | 2 |
-| code | 27 | 10 | 10 |
-| swedish | 18 | 10 | 5 |
-| longer | 77 | 10 | 10 |
+| Case | Prompt tokens | Generated tokens | Tokens matching C | Execution seconds | Checked driver seconds |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| hello | 8 | 10 | 10 | 2.67 | 5.69 |
+| question | 13 | 10 | 10 | 3.36 | 6.54 |
+| arithmetic | 20 | 2 | 2 | 3.15 | 6.34 |
+| code | 27 | 10 | 10 | 5.66 | 9.57 |
+| swedish | 18 | 10 | 5 | 4.15 | 7.57 |
+| longer | 77 | 10 | 10 | 15.30 | 21.58 |
 
 Five cases matched the complete C token sequence. `swedish` first differed at
 generated token six, position 22: GPU `665`, C `27822`. It continued with its own
@@ -388,11 +487,27 @@ vectors with matching input histories. Four later Swedish vectors were not
 comparable. Six compared vectors met the former 1% bound. The maximum relative
 L2 error was 9.7894%. This is not a 1% or exact-token compatibility pass.
 
-The six cases took 39.78 s for computation, WASM control, dispatch, readback,
-and validation. Initial model range fetch, conversion, and GPU upload took
-another 5.64 s. The original `hello` case took 3.06 s for 17 positions and ten
-generated tokens, excluding loading. These are single observed runs, not
-benchmark medians. There were no CPU softmax roundtrips.
+The checked network driver took 64.06 s, including 6.75 s of shared plan setup.
+The cases spent 34.29 s in token execution and 22.99 s in numerical comparisons,
+logging, and remaining application control. Execution includes MicroHs argument
+checks, generic bridge calls, GPU work, token checks, and readback. It excludes
+the separate reference-vector comparisons. It is not a GPU-only measurement.
+The table excludes loading and shared plan setup from each case interval.
+
+Weight payload range fetch, validation, norm conversion, and GPU upload took
+another 5.94 s. This interval excludes metadata parsing, scalar scale preparation,
+and shader/pipeline setup. The complete application driver took 79.37 s,
+including the 2.45 s fixture sequence and setup. There were no CPU softmax
+roundtrips.
+
+For the same checked workload, the uncached MicroHs runtime took 482.49 s.
+Plan reuse and streaming comparisons reduce that interval by about 7.5 times.
+The older TypeScript-controlled driver took 39.78 s, including its diagnostics.
+The current checked driver is still about 1.6 times slower than that baseline.
+Do not compare the 34.29 s execution-only value directly with a complete checked
+driver interval. These are single observations on one host, not benchmark
+medians or portable performance guarantees. The older 5.64 s upload measurement
+included scalar scale preparation, so the upload intervals also differ.
 
 `bin/ccc-spike/web-result.json` records the results. Its `passed` field covers
 execution and fixture checks. The network fields `tokenReferenceMatched` and
@@ -403,6 +518,11 @@ development-only strict-math option. This is not a portable WebGPU requirement
 or a production solution. The normal test does not enable this option.
 
 ## Compiler boundary
+
+The restrictions in this section apply to numerical source lowered to GPU
+kernels. The ordinary MicroHs application can use IO, recursion, local bindings,
+and imported helpers. It compiles through stock MicroHs to WASM, not through
+the restricted categorical frontend.
 
 `Frontend.hs` calls the upstream parser and type checker before desugaring.
 `Compiler.hs` accepts the exact qualified primitive names and resolved instance
@@ -519,13 +639,16 @@ timer rounded its execution time to zero at the printed precision.
 | `LayerArrays.hs`, `HeadArrays.hs` | Layer, attention, embedding, and head templates |
 | `Main.hs` | Compiler driver, source parity checks, and generated outputs |
 | `LayerProgram.hs`, `NetworkProgram.hs` | MicroHs tensor program and 30-layer control flow |
-| `WebFFI.hs`, `Rotary.hs` | JavaScript bridge and rotary table selection |
-| `WebMain.hs` | WASM check driver and completion state |
+| `Rotary.hs` | Rotary table selection |
+| `WebMain.hs`, `WebApp.hs` | MicroHs entry point, setup, prompt loop, and result diagnostics |
 | `Prepare*.hs`, `bitlinear-reference.c` | Native reference and fixture generation |
 | `metal-runner.m` | Physical Metal execution, checks, and timing |
-| `web/safetensors.ts` | Validated header parsing and HTTP range reads |
-| `web/bitlinear.ts`, `web/layer.ts` | Buffer ownership, pipeline dispatch, and cache state |
-| `web/network.ts`, `web/runtime.ts` | Suite execution, readback checks, and diagnostics |
+| `WebJSON.hs`, `WebModel.hs` | Metadata parsing, range checks, and model tensor access |
+| `WebTensor.hs` | Application tensor roles, resource planning, and cache state |
+| `WebFixtures.hs` | Fixture execution, readback validation, and check results |
+| `WebBrowser.hs`, `WebFFI.hs` | Generic browser operations and asynchronous continuation bridge |
+| `BufferChecks.hs` | Generated GPU representation and result validation kernels |
+| `web/bridge.ts` | Generic WebGPU/HTTP object bridge; no neural application logic |
 | `web/check.ts` | Local range server and headless Chrome driver |
 
 ### Change an existing numerical function
@@ -553,8 +676,9 @@ buffer bindings, and a call from the MicroHs tensor program. Merely defining an
 arbitrary Haskell function does not make the compiler select or parallelize it.
 
 Keep JavaScript foreign imports in `WebFFI.hs`. Keep numerical shader bodies in
-the Haskell compiler path. TypeScript should manage resources and execution,
-not become a second handwritten implementation of the network.
+the Haskell compiler path. Keep application ownership, shapes, generation, and
+validation in MicroHs. The browser bridge must expose generic operations only;
+it must not become a second implementation of the application.
 
 ## Troubleshooting
 

@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "tsc && mkdir -p ../../../bin/ccc-spike/web && cp dist/*.js index.html package.json ../../../bin/ccc-spike/web/",
+    "build": "rm -rf dist && tsc && mkdir -p ../../../bin/ccc-spike/web && rm -f ../../../bin/ccc-spike/web/*.js && cp dist/bridge.js index.html package.json ../../../bin/ccc-spike/web/",
     "check": "npm run build && node dist/check.js"
   },
   "devDependencies": {

@@ -41,6 +41,25 @@ a GPU.
    independent C references. Include arithmetic, questions, code, Unicode, and a longer input.
    Upload weights once for the suite. Reset caches between prompts. Compare
    vectors only while the consumed token prefixes match.
+8. **Complete: MicroHs application ownership.** Move model
+   metadata, upload planning, tensor shapes and resource lifetimes, cache state,
+   generation, EOS, fixture checks, and diagnostics into MicroHs. Replace the
+   application-specific TypeScript runtime with a generic browser bridge.
+   Keep weight data in opaque host buffers and resident GPU allocations.
+   Use generated GPU checks for packed fields and finite BF16 data. Preserve
+   the numerical kernels and independent six-prompt workload. Build WASM and
+   the strict TypeScript bridge. Rerun all 16 browser fixtures and six prompts.
+   Verify zero bulk-weight copies into WASM and one GPU submission per position.
+9. **Complete: reusable execution plans.** Prepare prefill and decode plans
+   with and without diagnostic checkpoints in MicroHs. Share activation,
+   scratch, uniform, and readback buffers across positions and compatible plans.
+   Let the generic bridge retain bind groups and replay GPU commands with
+   explicit argument slots. Keep token, chunk, plan, and cache decisions in
+   MicroHs. Preserve all kernels, numerical checks, and free-running generation.
+   Require zero new GPU buffer allocations and zero plan compilation during
+   the six-prompt run. Include plan setup in the network driver interval.
+   Stream diagnostic comparisons in MicroHs. Preserve finite checks, ascending
+   Double sums, tolerances, and first-mismatch records.
 
 ## Acceptance
 
@@ -69,7 +88,7 @@ long contexts, or other devices.
 
 ## Result
 
-The final 2026-10-15 Chrome/Apple M4 run completed all six cases: 209 consumed
+The migrated 2026-10-15 Chrome/Apple M4 run completed all six cases: 209 consumed
 positions and 52 GPU-selected tokens. Five cases matched C exactly. `swedish`
 matched five tokens, then selected `665` instead of C's `27822` at position 22.
 In total, 47 of 52 generated tokens matched. The GPU controlled all later inputs
@@ -80,10 +99,16 @@ Six met the former 1% bound. Maximum relative L2 error was 9.7894%. Execution,
 fixture, and standalone layer checks passed. Full-model numerical compatibility
 did not pass and remains diagnostic.
 
-Computation, WASM control, dispatch, readback, and validation took 39.78 s across
-the suite. Model fetch, conversion, and GPU upload took another 5.64 s. The
-original `hello` case took 3.06 s, excluding loading. These are single observed
-runs, not benchmark medians. See `README.md` and
+All 52 GPU-selected tokens are unchanged from the previous runtime.
+The checked suite took 64.06 s after plan reuse, versus 482.49 s before reuse.
+The interval includes 6.75 s of plan preparation, 34.29 s of token execution,
+and 22.99 s of validation and application control. Weight payload fetch,
+validation, conversion, and upload took another 5.94 s, excluding metadata,
+scalar scale preparation, and pipeline setup. The `hello` case took 5.69 s,
+including diagnostics but excluding loading and shared plan preparation.
+All 950 diagnostic records are unchanged. The full checked run still exceeds
+the TypeScript-controlled baseline of 39.78 s. These are single observed runs,
+not benchmark medians. See `README.md` and
 `bin/ccc-spike/web-result.json` for details.
 
 RoPE constants come from checked source graphs evaluated through generated
@@ -91,3 +116,18 @@ native C at build time. Attention, including softmax, runs in one generated GPU
 kernel. No C neural kernel is linked into the WASM runtime.
 The typed numerical subset, explicit array templates, bounded suite, and
 2048-position limit remain experimental boundaries.
+
+Milestone 8 passes the WASM build, strict TypeScript build, all 16 browser
+fixtures, and all five native Metal checks. The model uploads once and retains
+1,179,443,200 model-buffer bytes. Bulk model-weight copies into WASM are zero.
+The six prompts submit exactly 209 GPU command buffers. Packed-field and NaN
+norm corruption checks reject invalid weights. The generic browser bridge is
+672 TypeScript lines; the separate Node driver is 68 lines.
+
+Milestone 9 passes all 16 browser fixtures and all six prompts. Four plans share
+GPU allocations and prebuilt bind groups. The 209 positions create no new GPU
+buffers, bind groups, or plans. Resident bytes remain constant during execution.
+The 325,098,760-byte plan allocation includes the 314,572,800-byte KV cache.
+Negative checks reject NaN input, invalid packed weights, NaN norm weights,
+an out-of-bounds plan offset, and a released plan dependency. No neural
+application logic moved into TypeScript.

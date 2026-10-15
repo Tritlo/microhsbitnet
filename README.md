@@ -19,17 +19,26 @@ MicroHs numerical functions → checked typed expressions → categorical graphs
 MicroHs layer and network programs → stock MicroHs → C → Emscripten → WASM
 ```
 
-WASM executes the network program. A TypeScript host manages GPU resources and
-encodes its operations. WebGPU executes the generated kernels. Model weights,
+WASM executes the application, including model metadata, tensor planning, cache
+state, generation, and diagnostics. A generic browser bridge exposes WebGPU and
+HTTP operations through opaque handles. WebGPU executes the generated kernels. Model weights,
 activations, and the KV cache remain on the GPU between operations. Softmax runs
 on the GPU too; it comes from `exp (score - maximum)` in the Haskell source.
 There is no C neural kernel or CPU softmax fallback in the browser runtime.
 The MicroHs runtime itself still comes from upstream C.
 
-The current experiment runs the complete 30-layer model across six prompts.
+The MicroHs-controlled experiment runs the complete 30-layer model across six prompts.
 Five generated sequences match the native C reference exactly. Swedish diverges
 after five matching tokens. The former 1% vector-error target is **not met**;
 numerical comparisons are diagnostics, not a compatibility claim.
+
+The application migration passes all 16 browser fixture checks and the six-prompt
+rerun on Apple M4. All 52 GPU-selected tokens are unchanged from the earlier
+runtime. Weights upload once and remain GPU-resident; no bulk weight bytes pass
+through WASM. MicroHs prepares reusable execution plans and GPU buffers once.
+The checked suite takes 64.06 s, down from 482.49 s before plan reuse.
+Execution itself takes 34.29 s. The full checked run still exceeds the earlier
+TypeScript-controlled 39.78 s because it includes MicroHs diagnostics and plan setup.
 
 The [complete process and reproduction guide](spike/ccc/README.md) explains the
 categorical representation, source-to-kernel examples, pinned toolchain, build

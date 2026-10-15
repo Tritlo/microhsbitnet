@@ -3,6 +3,7 @@
 module Main (main) where
 
 import Arrays
+import BufferChecks (bufferCheckSource)
 import CCC
 import Compiler
 import Control.Exception (ArithException (Overflow), SomeException, evaluate, try)
@@ -73,6 +74,7 @@ main = do
     writeFile "bin/ccc-spike/bitlinear.wgsl" bitLinearShader
     writeFile "bin/ccc-spike/layer.wgsl" layerShader
     writeFile "bin/ccc-spike/head.wgsl" headShader
+    writeFile "bin/ccc-spike/checks.wgsl" bufferCheckSource
     writeFile "bin/ccc-spike/rotary.c" $
         unlines
             [ "#include <fenv.h>"
