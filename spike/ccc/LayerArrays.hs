@@ -2,6 +2,7 @@
 
 module LayerArrays (layerSource) where
 
+import qualified ArrayGraph
 import CCC
 import Compiler
 import MicroHs.Expr (EDef)
@@ -15,8 +16,8 @@ floatExpression graph input = do
     pure result
 
 -- | Generate layer array operations from the checked numerical functions.
-layerSource :: TModule [EDef] -> Either String String
-layerSource checked = do
+layerSource :: TModule [EDef] -> ArrayGraph.Program -> Either String String
+layerSource checked softmax = do
     square <- compileScalar checked "square"
     plus <- compileFloatPair checked "plus"
     product <- compileFloatPair checked "product"
@@ -25,9 +26,7 @@ layerSource checked = do
     reluMul <- compileFloatPair checked "reluMul"
     rotateFirst <- compileFloatQuadruple checked "rotateFirst"
     rotateSecond <- compileFloatQuadruple checked "rotateSecond"
-    maximumScore <- compileFloatPair checked "maximumScore"
-    divide <- compileFloatPair checked "divide"
-    softExp <- compileFloatPair checked "softExp"
+    softmaxPlan <- ArrayGraph.emitWorkgroup softmax 2048 "scores" "dimensions.x"
     let pair left right = PairCode (FloatCode left) (FloatCode right)
         triple first second third = PairCode (FloatCode first) (pair second third)
         quadruple first second third fourth = PairCode (FloatCode first) (triple second third fourth)
@@ -42,10 +41,7 @@ layerSource checked = do
     dotElement <- floatExpression product (pair "inputs[head * dimensions.w + component]" "keys[position * kvDimension + kvHead * dimensions.w + component]")
     dotSum <- floatExpression plus (pair "dot" "element")
     scaledDot <- floatExpression product (pair "dot" "parameters.x")
-    maximum <- floatExpression maximumScore (pair "maximum" "scores[position]")
-    exponential <- floatExpression softExp (pair "scores[position]" "maximum")
-    exponentialSum <- floatExpression plus (pair "denominator" "scores[position]")
-    probability <- floatExpression divide (pair "scores[position]" "denominator")
+    probability <- ArrayGraph.outputAt softmaxPlan "position"
     weightedValue <- floatExpression product (pair "probability" "values[position * kvDimension + kvHead * dimensions.w + component]")
     attended <- floatExpression plus (pair "total" "element")
     pure $
@@ -60,8 +56,10 @@ layerSource checked = do
                 , "@group(0) @binding(6) var<storage, read> values: array<f32>;"
                 , "var<workgroup> inverseRms: f32;"
                 , "var<workgroup> scores: array<f32, 2048>;"
-                , "var<workgroup> denominator: f32;"
-                , "@compute @workgroup_size(128)"
+                ]
+            ++ unlines (ArrayGraph.declarations softmaxPlan)
+            ++ unlines
+                [ "@compute @workgroup_size(128)"
                 , "fn rmsnorm(@builtin(local_invocation_index) lane: u32) {"
                 , "  if (lane == 0u) {"
                 , "    var total = 0.0f;"
@@ -102,7 +100,6 @@ layerSource checked = do
                 , "  let kvHead = head / (dimensions.y / dimensions.z);"
                 , "  let kvDimension = dimensions.z * dimensions.w;"
                 , "  if (lane == 0u) {"
-                , "    var maximum = 0.0f;"
                 , "    for (var position = 0u; position < dimensions.x; position++) {"
                 , "      var dot = 0.0f;"
                 , "      for (var component = 0u; component < dimensions.w; component++) {"
@@ -110,15 +107,11 @@ layerSource checked = do
                 , "        dot = " ++ dotSum ++ ";"
                 , "      }"
                 , "      scores[position] = " ++ scaledDot ++ ";"
-                , "      if (position == 0u) { maximum = scores[position]; }"
-                , "      else { maximum = " ++ maximum ++ "; }"
                 , "    }"
-                , "    denominator = 0.0f;"
-                , "    for (var position = 0u; position < dimensions.x; position++) {"
-                , "      scores[position] = " ++ exponential ++ ";"
-                , "      denominator = " ++ exponentialSum ++ ";"
-                , "    }"
-                , "  }"
+                ]
+            ++ unlines (map ("    " ++) (ArrayGraph.statements softmaxPlan))
+            ++ unlines
+                [ "  }"
                 , "  workgroupBarrier();"
                 , "  for (var component = lane; component < dimensions.w; component += 128u) {"
                 , "    var total = 0.0f;"

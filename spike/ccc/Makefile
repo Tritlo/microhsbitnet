@@ -39,18 +39,18 @@ $(BUILD)/prepare-network: PrepareNetwork.hs $(wildcard $(ROOT)/src/*.hs) $(ROOT)
 	@mkdir -p $(BUILD)
 	cd $(ROOT) && vendor/microhs/bin/gmhs -ispike/ccc -isrc -optc -fno-fast-math -optc -ffp-contract=off PrepareNetwork -Icbits cbits/bndot.c cbits/tokparse.c -obin/ccc-spike/prepare-network
 
-$(BUILD)/web/WebMain.c: WebMain.hs WebFFI.hs WebBrowser.hs WebGPU.hs WebJSON.hs WebModel.hs WebApp.hs WebFixtures.hs WebTensor.hs Programs.hs LayerPrograms.hs Rotary.hs LayerProgram.hs NetworkProgram.hs $(ROOT)/src/Safetensors.hs
+$(BUILD)/web/WebMain.c: WebMain.hs WebFFI.hs WebBrowser.hs WebGPU.hs WebJSON.hs WebModel.hs WebApp.hs WebFixtures.hs ArrayFixtures.hs WebTensor.hs Programs.hs LayerPrograms.hs ArrayPrograms.hs SourceArray.hs Rotary.hs LayerProgram.hs NetworkProgram.hs $(ROOT)/src/Safetensors.hs
 	@mkdir -p $(BUILD)/web
 	cd $(ROOT) && vendor/microhs/bin/gmhs -c -ispike/ccc -isrc WebMain -obin/ccc-spike/web/WebMain.c
 
 $(BUILD)/web/microhs.mjs: $(BUILD)/web/WebMain.c
 	$(EMCC) -O2 -I$(ROOT)/vendor/microhs/src/runtime -I$(ROOT)/vendor/microhs/src/runtime/unix -DUSE_SYSTEM_RAW -Wno-address-of-packed-member $< $(ROOT)/vendor/microhs/src/runtime/eval.c --no-entry -lm -sEXPORTED_FUNCTIONS=_mhs_init,_malloc,_free -sEXPORTED_RUNTIME_METHODS=HEAPU8 -sMODULARIZE=1 -sEXPORT_ES6=1 -sEXPORT_NAME=MicroHsGPU -sENVIRONMENT=web,node -sALLOW_MEMORY_GROWTH=1 -sSTACK_SIZE=5242880 -sEXIT_RUNTIME=0 -o $@
 
-$(BUILD)/ccc-compile: Main.hs Frontend.hs Compiler.hs CCC.hs FloatWGSL.hs Arrays.hs LayerArrays.hs LayerPrograms.hs HeadArrays.hs BufferChecks.hs
+$(BUILD)/ccc-compile: Main.hs Frontend.hs Compiler.hs CCC.hs FloatWGSL.hs Arrays.hs ArrayCompiler.hs ArrayGraph.hs ArrayPrograms.hs SourceArray.hs Programs.hs LayerArrays.hs LayerPrograms.hs HeadArrays.hs BufferChecks.hs
 	@mkdir -p $(BUILD)/ghc
 	$(GHC) $(GHCFLAGS) Main.hs -o $@
 
-$(BUILD)/source: Programs.hs
+$(BUILD)/source: Programs.hs ArrayPrograms.hs SourceArray.hs
 	@mkdir -p $(BUILD)
 	cd $(ROOT) && vendor/microhs/bin/gmhs -ispike/ccc Programs -obin/ccc-spike/source
 

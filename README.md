@@ -15,15 +15,18 @@ native implementation below remains separate and unchanged.
 There are two compilation paths:
 
 ```text
-MicroHs numerical functions → checked typed expressions → categorical graphs → WGSL
+MicroHs numerical functions → checked typed expressions → categorical and array graphs → WGSL
 MicroHs layer and network programs → stock MicroHs → C → Emscripten → WASM
 ```
 
 WASM executes the application, including model metadata, tensor planning, cache
-state, generation, and diagnostics. A generic browser bridge exposes WebGPU and
+state, generation, and diagnostics. MicroHs also owns generic resource metadata,
+lifetime checks, counters, and execution-plan replay. A browser bridge exposes WebGPU and
 HTTP operations through opaque handles. WebGPU executes the generated kernels. Model weights,
 activations, and the KV cache remain on the GPU between operations. Softmax runs
-on the GPU too; it comes from `exp (score - maximum)` in the Haskell source.
+on the GPU too. Its complete Haskell definition uses maps and ordered reductions.
+The compiler derives its workgroup schedule and reuses the attention score storage.
+Other tensor operations still use explicit array templates.
 There is no C neural kernel or CPU softmax fallback in the browser runtime.
 The MicroHs runtime itself still comes from upstream C.
 
@@ -32,13 +35,15 @@ Five generated sequences match the native C reference exactly. Swedish diverges
 after five matching tokens. The former 1% vector-error target is **not met**;
 numerical comparisons are diagnostics, not a compatibility claim.
 
-The application migration passes all 16 browser fixture checks and the six-prompt
+The current implementation passes all 23 browser fixture checks and the six-prompt
 rerun on Apple M4. All 52 GPU-selected tokens are unchanged from the earlier
 runtime. Weights upload once and remain GPU-resident; no bulk weight bytes pass
-through WASM. MicroHs prepares reusable execution plans and GPU buffers once.
-The checked suite takes 64.06 s, down from 482.49 s before plan reuse.
-Execution itself takes 34.29 s. The full checked run still exceeds the earlier
-TypeScript-controlled 39.78 s because it includes MicroHs diagnostics and plan setup.
+through WASM. MicroHs prepares and replays reusable plans with persistent GPU
+buffers and bind groups. The browser bridge has 290 TypeScript source lines.
+The checked suite takes 65.23 s, versus 65.07 s before source-derived softmax
+on the same Chrome build. Token execution takes 34.70 s versus 34.76 s.
+These are single observations. The earlier uncached MicroHs run took 482.49 s.
+The full checked run still exceeds the older TypeScript-controlled 39.78 s.
 
 The [complete process and reproduction guide](spike/ccc/README.md) explains the
 categorical representation, source-to-kernel examples, pinned toolchain, build

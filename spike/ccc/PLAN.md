@@ -4,8 +4,9 @@
 
 Write numerical code in MicroHs. Compile a supported numerical subset through a
 typed categorical and array representation to WGSL. Run the control program as
-WASM. Use WebGPU for model computation. Keep handwritten code limited to the
-compiler, array execution templates, and resource management.
+WASM. Use WebGPU for model computation. Derive complete softmax array operations
+from source. Keep reusable lowering rules in the compiler. Other tensor operations
+still use explicit array templates and resource plans.
 
 Keep the demonstration simple. Use the existing C implementation as an
 independent comparison, not as a requirement for full-model numerical equivalence.
@@ -32,9 +33,10 @@ a GPU.
    WASM heap. Handle browser buffer limits. Run prompt prefill and token decode.
    Check logits and generated tokens. Measure complete inference, not only a
    matrix operation.
-6. **Complete: GPU softmax.** Compile `LayerPrograms.softExp`, defined as
-   `exp (score - maximum)`, plus source `plus`, `divide`, and `maximumScore`
-   through CCC to WGSL. Use one GPU attention kernel. There is no `Softmax.hs`,
+6. **Complete: GPU softmax.** Compile scalar exponential, addition, division,
+   and maximum functions through CCC to WGSL. This first version uses explicit
+   softmax array loops. Milestone 11 replaces them with a source-derived plan.
+   Use one GPU attention kernel. There is no `Softmax.hs`,
    WASM softmax export, softmax callback, or intermediate score readback.
    Submit once per consumed token. Keep weights and the KV cache resident.
 7. **Complete: prompt coverage.** Compare six prompts against
@@ -60,6 +62,28 @@ a GPU.
    the six-prompt run. Include plan setup in the network driver interval.
    Stream diagnostic comparisons in MicroHs. Preserve finite checks, ascending
    Double sums, tolerances, and first-mismatch records.
+10. **Complete: MicroHs replay and resource bookkeeping.** Move generic plan
+    compilation, replay, resource metadata, dependency checks, and counters into
+    MicroHs. Keep only browser API calls, opaque browser references, and
+    asynchronous transport in JavaScript. Retain cached GPU buffers, bind groups,
+    and uniform arrays. Use synchronous numeric FFI calls during replay.
+    Compile pass boundaries once. Cache lifetime checks until a GPU release.
+    Preserve all 16 fixtures, six prompts, 52 generated tokens, and 950 diagnostic
+    records. Require zero new GPU buffers, bind groups, or plans during the 209
+    positions. Compare the checked workload with the 64.06 s reuse baseline.
+11. **Complete: source-derived softmax.** Compile the complete function in
+    `ArrayPrograms.hs`, including local bindings, lambdas, and same-module helpers.
+    Recognize the typed `SourceArray.map`, `sum`, and `maximum` operations.
+    Build a shared array graph with typed scalar captures. Derive an ordered
+    workgroup schedule, intermediate storage, map/sum fusion, and final map
+    access from that graph. Reuse the attention score buffer when its old value
+    has no later use. Keep reductions in ascending index order. Integrate the
+    generated plan into the existing attention kernel without new host commands.
+    Check stock MicroHs against the graph interpreter. Check six array cases
+    and a source-only output change on WebGPU. Rerun the existing 16 fixtures
+    and six prompts. Retain resident weights and cached GPU allocations.
+    Do not extend this milestone to RMSNorm, BitLinear, or complete network
+    scheduling. Do not claim arbitrary list or nested-array compilation.
 
 ## Acceptance
 
@@ -100,7 +124,7 @@ fixture, and standalone layer checks passed. Full-model numerical compatibility
 did not pass and remains diagnostic.
 
 All 52 GPU-selected tokens are unchanged from the previous runtime.
-The checked suite took 64.06 s after plan reuse, versus 482.49 s before reuse.
+The reuse-only checked suite took 64.06 s, versus 482.49 s before reuse.
 The interval includes 6.75 s of plan preparation, 34.29 s of token execution,
 and 22.99 s of validation and application control. Weight payload fetch,
 validation, conversion, and upload took another 5.94 s, excluding metadata,
@@ -122,7 +146,7 @@ fixtures, and all five native Metal checks. The model uploads once and retains
 1,179,443,200 model-buffer bytes. Bulk model-weight copies into WASM are zero.
 The six prompts submit exactly 209 GPU command buffers. Packed-field and NaN
 norm corruption checks reject invalid weights. The generic browser bridge is
-672 TypeScript lines; the separate Node driver is 68 lines.
+672 TypeScript lines at that milestone; the separate Node driver is 68 lines.
 
 Milestone 9 passes all 16 browser fixtures and all six prompts. Four plans share
 GPU allocations and prebuilt bind groups. The 209 positions create no new GPU
@@ -131,3 +155,33 @@ The 325,098,760-byte plan allocation includes the 314,572,800-byte KV cache.
 Negative checks reject NaN input, invalid packed weights, NaN norm weights,
 an out-of-bounds plan offset, and a released plan dependency. No neural
 application logic moved into TypeScript.
+
+Milestone 10 passes the WASM build, strict TypeScript build, all 16 browser
+fixtures, and all six prompts. All 52 tokens and 950 diagnostic records are
+unchanged. MicroHs owns generic replay, resource metadata, dependency checks,
+and counters. The 290-line browser bridge contains API wrappers, opaque object
+references, asynchronous transport, and display code. The network still makes
+209 submissions with no new GPU buffers, bind groups, or plans. Weights remain
+resident, and bulk weight copies into WASM remain zero.
+
+On Chrome 155.0.8059.82 and Apple M4, the saved JavaScript-replay runtime took
+64.86 s and MicroHs replay took 65.07 s for the checked network workload: a 0.3%
+increase. Token execution took 34.40 s and 34.76 s. Complete application time
+took 80.49 s and 81.79 s. The comparison excludes concurrent GPU checks and uses
+the same shaders, weights, references, and prompts. These are single runs, not
+a zero-overhead guarantee. Nine focused API probes pass, including invalid
+ranges, released resources, missing arguments, invalid bindings, and host bounds.
+
+Milestone 11 passes stock MicroHs/array interpretation checks, all five native
+Metal checks, all 23 browser fixtures, and the six-prompt workload on 2026-10-16.
+The seven new fixtures cover complete softmax and a source-only outer map that
+doubles the result. The largest absolute error is 1.49e-8, below the fixture
+bound of `2e-6 * max(1, abs(reference))`.
+
+All 52 GPU tokens and 950 diagnostics match milestone 10. The checked network
+interval is 65.23 s versus 65.07 s. Token execution is 34.70 s versus 34.76 s.
+These are single observations on the same Chrome version, not benchmark medians.
+The 209 positions create no new GPU buffers, bind groups, or plans. The generated
+softmax schedule needs no extra workgroup vector or host dispatch. Full-model
+numerical limits are unchanged. RMSNorm, BitLinear, and other tensor schedules
+remain explicit templates.

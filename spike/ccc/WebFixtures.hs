@@ -1,5 +1,6 @@
 module WebFixtures (runFixtures, fixturePath) where
 
+import ArrayFixtures (runArrayFixtures)
 import Control.Exception (finally)
 import Control.Monad (forM, forM_, replicateM, unless)
 import Data.List (find, foldl', sort)
@@ -44,7 +45,7 @@ validPath path =
             || (character >= '0' && character <= '9')
             || character `elem` "_.-"
 
--- | Require the scalar, four raw matrices, eight BitLinear cases, and three layer steps.
+-- | Require the scalar, four raw matrices, eight BitLinear cases, three layer steps, and seven array cases.
 runFixtures :: Browser [JSON]
 runFixtures = do
     rawManifest <- fetchText (fixturePath "cases" "cases.txt")
@@ -69,7 +70,8 @@ runFixtures = do
     release False (bitShader : bitLayout : bitPipelines)
     release False (checkShader : checkLayout : checkPipelines)
     layerSamples <- runLayers
-    pure (scalarSample : rawSamples ++ bitSamples ++ layerSamples)
+    arraySamples <- runArrayFixtures
+    pure (scalarSample : rawSamples ++ bitSamples ++ layerSamples ++ arraySamples)
 
 -- | Parse decimal dimensions without machine-integer overflow.
 dimension :: String -> IO Int

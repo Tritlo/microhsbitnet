@@ -1,7 +1,9 @@
 module Programs where
 
+import qualified ArrayPrograms
 import Control.Exception (ArithException (Overflow), evaluate, try)
 import Data.Int (Int32)
+import qualified SourceArray as A
 
 -- | Reuse a scalar input in two arithmetic expressions.
 scalar :: Float -> Float
@@ -45,3 +47,15 @@ main = do
     print [peak (-8) 4, peak 0 0.0000001]
     print [quantize value 127 | value <- [-127, -126.5, -2.5, -1.5, -0.5, 0, 0.5, 1.5, 2.5, 126.5, 127]]
     print [rescale 1024 0.125 127, rescale (-17) 0.5 0]
+    print [A.toList (ArrayPrograms.softmax (A.fromList values)) | (_, values) <- arrayInputs]
+
+-- | Exercise array lengths, stable exponentials, and the workgroup capacity.
+arrayInputs :: [(String, [Float])]
+arrayInputs =
+    [ ("singleton", [3])
+    , ("equal", replicate 8 2)
+    , ("negative", [-8, -2, -5, -3])
+    , ("wide", [-80, -20, 0, 20, 80])
+    , ("tail", [fromIntegral ((index * 17) `mod` 41) / 7 - 3 | index <- [0 .. 130 :: Int]])
+    , ("capacity", [fromIntegral ((index * 13) `mod` 101) / 11 - 5 | index <- [0 .. 2047 :: Int]])
+    ]

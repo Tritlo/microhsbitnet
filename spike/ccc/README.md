@@ -1,9 +1,10 @@
 # Categorical GPU compiler spike
 
 The spike demonstrates how to write numerical kernels in MicroHs and run them
-on a GPU. It compiles selected functions from `Programs.hs` and `LayerPrograms.hs`
+on a GPU. It compiles selected functions from `Programs.hs`, `LayerPrograms.hs`, and `ArrayPrograms.hs`
 through the upstream MicroHs parser and type checker. It translates the checked scalar expressions
-to typed categorical operations. It generates Metal and WGSL kernels from those graphs.
+to typed categorical operations. It derives a complete softmax array graph from
+source maps and reductions. It generates Metal and WGSL kernels from those graphs.
 The model weights remain packed input data.
 
 The target is a direct process: write numerical functions in MicroHs, compile
@@ -40,13 +41,13 @@ The handles refer to WebGPU buffers; they do not copy tensor values through WASM
 ```text
 Build time: GHC runs the compiler driver
 
-  Programs.hs / LayerPrograms.hs
+  Programs.hs / LayerPrograms.hs / ArrayPrograms.hs
         │ upstream MicroHs parser and type checker
         ▼
   checked expressions with concrete numeric dictionaries
         │ Compiler.hs
         ▼
-  Cat input output + explicit array plans
+  Cat input output + source-derived softmax graph + other explicit array plans
         │ scalar interpreters + array execution templates
         ├── Metal kernels for the native checks
         ├── WGSL kernels for WebGPU
@@ -55,7 +56,7 @@ Build time: GHC runs the compiler driver
 Build time: stock MicroHs compiles the control program
 
   WebMain.hs + WebApp.hs + WebModel.hs + WebTensor.hs
-      + LayerProgram.hs + NetworkProgram.hs + WebBrowser.hs + WebFFI.hs
+      + LayerProgram.hs + NetworkProgram.hs + WebGPU.hs + WebBrowser.hs + WebFFI.hs
         │ gmhs -c
         ▼
   WebMain.c + upstream MicroHs evaluator
@@ -65,7 +66,7 @@ Build time: stock MicroHs compiles the control program
 
 Run time:
 
-  MicroHs application and tensor planning → JavaScript FFI → generic browser bridge
+  MicroHs application, resource tracking, and plan replay → JavaScript browser API calls
         → generated WGSL → physical WebGPU device
         → readback → fixture checks and network diagnostics
 ```
@@ -118,9 +119,51 @@ point. There is no need for a linear-SKI intermediate representation here.
 This is a choice of compiler boundary, not a claim that combinators cannot
 represent the program.
 
-The array operations are explicit. Only their supported numerical expressions
-are derived from source. This is the current limit of the automatic translation;
-it is not an Accelerate backend or an automatic optimizer for arbitrary folds.
+Softmax array operations are derived from the checked source. Other tensor
+operations still use explicit array plans. This is not an Accelerate backend
+or an automatic optimizer for arbitrary list folds.
+
+### 4. Compile a complete array function
+
+`ArrayPrograms.hs` defines softmax with the small `SourceArray` library:
+
+```haskell
+softmax :: A.Vector Float -> A.Vector Float
+softmax scores =
+    let peak = A.maximum scores
+        numerators = A.map (\score -> exp (score - peak)) scores
+        denominator = A.sum numerators
+    in A.map (\numerator -> numerator / denominator) numerators
+```
+
+The same definition runs in stock MicroHs for CPU checks. The compiler expands
+nonrecursive local bindings and same-module helpers. It reduces lambda applications
+with lexical capture preserved. It then recognizes the qualified array library
+operations. The library operations are compiler intrinsics with a CPU implementation.
+They are not inferred from arbitrary implementations of list functions.
+
+`ArrayCompiler.hs` builds typed map and reduction nodes. Shared nodes have one
+reference. Map closures capture typed scalar products. `ArrayGraph.hs` interprets
+the graph or generates a workgroup schedule. It computes vector lifetimes, reuses
+dead input storage, combines an adjacent map and sum in one loop, and emits the
+final map as an element accessor. The schedule is generated once at build time.
+
+For softmax, the generated plan consumes the existing attention score storage.
+It needs no extra workgroup vector, GPU buffer, or host dispatch. The attention
+template supplies scores and consumes probabilities. It no longer specifies
+the softmax loops or denominator calculation. Other attention operations remain
+handwritten templates.
+
+The current array fragment has one nonempty finite `Vector Float` input. Maps
+preserve its length. Reductions run in ascending index order. Browser kernels
+accept lengths from 1 to 2048. There are no GPU exceptions or promises of arbitrary
+Haskell laziness. Scalar expressions must stay in the existing finite numerical
+domain. Element-dependent nested arrays and unsupported operations are rejected.
+
+The compiler emits `array-graph.txt` and standalone `softmax.wgsl` for inspection.
+The existing fixture generator also adds an outer map that doubles each result.
+It compiles that changed source to `softmax-doubled.wgsl`. The GPU fixture must
+return the changed values without an edit to a shader template or dispatch routine.
 
 ## Build and run
 
@@ -137,7 +180,7 @@ Other WebGPU platforms have not been validated by these results.
 | Apple Clang | 17.0.0 | Native fixtures, Metal runner, rotary constants |
 | Emscripten | 6.0.12 | Compiles the MicroHs C output and evaluator to WASM |
 | Node | 25.4.0 | TypeScript build and browser check driver |
-| Google Chrome | 155.0.8059.40 | Physical WebGPU execution |
+| Google Chrome | 155.0.8059.82 | Latest physical WebGPU execution |
 
 These are observed versions, not a tested range of supported versions. Install
 Git, make, curl, Python 3 for SDK setup, the Xcode command-line tools, and GHC
@@ -236,19 +279,35 @@ dispatch plans. `WebFixtures.hs` owns the fixture sequence and checks.
 `web/bridge.ts` is a generic browser binding, compiled to JavaScript. It stores
 opaque browser objects and performs HTTP, WebGPU, typed-array, and asynchronous
 completion operations. It has no model names, tensor shapes, prompt loops,
-EOS policy, or numerical shader bodies. `WebBrowser.hs` exposes these operations
-to MicroHs and retains suspended continuations. Commands for one token are
-submitted as a batch rather than as asynchronous calls for every GPU API method.
-The JavaScript FFI is synchronous. `WebBrowser.hs` stores one request ticket and
+EOS policy, or numerical shader bodies. It does not interpret execution plans,
+track resource metadata, or calculate runtime counters. Its object array retains
+opaque browser objects at indices assigned by MicroHs. Browser objects cannot
+be stored directly in the WASM linear heap.
+
+`WebGPU.hs` owns generic resource metadata, handle validation, dependency
+lifetimes, counters, plan preparation, and replay. `WebBrowser.hs` interprets
+setup commands in MicroHs and retains suspended continuations. Replay uses
+synchronous numeric FFI calls. No plan or GPU command batch is serialized to
+JavaScript. Only asynchronous browser APIs use JSON requests and completions.
+`WebBrowser.hs` stores one request ticket and
 its continuation before it calls JavaScript. The bridge defers completion until
 WASM returns. It then calls `browserComplete` with that ticket. MicroHs rejects
 stale tickets and resumes the application without Asyncify.
+The bridge uses `queueMicrotask`, not a timer. This defers work until the current
+synchronous call returns without the nested-timer delay. See the
+[HTML microtask definition](https://html.spec.whatwg.org/multipage/timers.html#microtask-queuing).
 
 `WebJSON.hs` retains integral command values as `Int`. Converting each handle to
 `Double` before JSON formatting added substantial WASM interpreter overhead.
 Weight representation checks run on resident GPU buffers. Only their status
 words return to MicroHs; the application does not scan weights through scalar
 FFI calls.
+
+`WebGPU.hs` counts bytes with `Int64`. The pinned MicroHs implementation supplies
+primitive `Enum` conversions from `Int` to `Int64` and `Word32`. The runtime uses
+`toEnum` for validated counts and descriptors. This avoids an `Integer`
+intermediate during replay. It converts byte counters to JSON numbers only when
+the application requests statistics.
 
 `Arrays.hs` supplies the array execution templates. The supported
 source expressions supply their numerical bodies. The test starts a local HTTP
@@ -276,14 +335,25 @@ and position. It commits cache positions only after successful execution and
 readback. No model operation, shape rule, token decision, or EOS decision is
 implemented in the browser bridge.
 
-The bridge exposes generic `plan`, `run`, and host-buffer upload commands.
-A plan contains dispatch, copy, uniform-write, and clear operations. Numeric
-argument references use `["arg", index]`. Binding alternatives come from
-MicroHs; the bridge creates their bind groups once. It checks argument ranges
-and resource lifetimes before execution. Adjacent dispatches share a compute
-pass. Each run creates a fresh command encoder but reuses buffers and bind
-groups. The status buffer is cleared before result checks. GPU command buffers
-are submitted once, not reused after submission.
+`WebGPU.hs` interprets the generic `plan`, `run`, and host-buffer upload commands
+inside MicroHs. A plan contains dispatch, copy, uniform-write, and clear
+operations. Numeric argument references use `["arg", index]` during preparation.
+MicroHs compiles these values into reusable IO actions. It creates bind groups
+once, retains uniform arrays in WASM memory, and checks argument ranges before
+execution. It also compiles compute-pass boundaries once. Adjacent dispatches
+share a compute pass. Replay calls the JavaScript API wrappers directly with
+numeric handles and borrowed memory ranges.
+
+Resource metadata uses a growable MicroHs array. Each resource has a lifetime
+flag. A GPU release changes a version counter. A plan checks its dependency
+flags when this version changes. Host readback cleanup does not invalidate GPU
+dependency checks. This preserves released-resource checks without scanning all
+dependencies for each position.
+
+Each run creates a fresh command encoder but reuses buffers and bind groups.
+The status buffer is cleared before result checks. GPU command buffers are
+submitted once, not reused after submission. JavaScript retains no plan actions,
+argument substitution rules, allocation counters, or resource usage metadata.
 
 The three standalone layer fixtures reuse one plan with different input buffers
 and consecutive cache positions. Full-network comparisons stream pairs of Float
@@ -341,18 +411,13 @@ handles for projections, normalization, RoPE, cached attention, residual additio
 and the MLP. WASM evaluates this program. The host encodes each requested operation.
 Weights, activations, and the KV cache remain on the GPU between positions.
 
-`LayerPrograms.hs` contains the numerical functions. `LayerArrays.hs` generates
-their WGSL array kernels. Attention uses one GPU kernel for scores, stable
-softmax, and weighted values. The numerical source is ordinary MicroHs:
+`LayerPrograms.hs` contains the scalar numerical functions. `LayerArrays.hs`
+generates their WGSL array kernels. Attention uses one GPU kernel for scores,
+stable softmax, and weighted values. The complete softmax function comes from
+`ArrayPrograms.hs`. Its maps, reductions, captures, and scratch schedule are
+compiled as described in the compilation process above.
 
-```haskell
-softExp :: Float -> Float -> Float
-softExp score maximum = exp (score - maximum)
-```
-
-The compiler translates this function and
-the source functions `plus`, `divide`, and `maximumScore` through CCC to WGSL.
-The exponential uses WGSL `exp`. There is no `Softmax.hs`, WASM softmax export,
+The exponential uses WGSL `exp`. There is no WASM softmax export,
 softmax callback, or intermediate score readback. The RMS and attention dot sums
 retain sequential FP32 addition order.
 
@@ -373,6 +438,8 @@ The build writes its outputs to `bin/ccc-spike/`:
 | Output | Contents |
 | --- | --- |
 | `graphs.txt` | Categorical expressions for the scalar and ternary functions |
+| `array-graph.txt` | Source-derived softmax graph and generated workgroup schedule |
+| `softmax.wgsl`, `softmax-doubled.wgsl` | Standalone whole-array and changed-source fixtures |
 | `generated.metal`, `generated.wgsl` | Scalar and packed-matrix kernels |
 | `bitlinear.wgsl` | Activation quantization and ternary projection kernels |
 | `layer.wgsl`, `head.wgsl` | Decoder operations, embedding lookup, head, and argmax |
@@ -428,9 +495,17 @@ The 2026-10-15 migration passes the stock MicroHs and Emscripten build, strict
 TypeScript build, all 16 browser fixture checks, and all five native Metal
 checks. Separate checks reject NaN input, an invalid packed field, a NaN norm
 weight, an out-of-bounds plan offset, and a released plan dependency.
-No neural application logic remains in TypeScript. The generic browser bridge
-has 672 source lines, including reusable command execution. The separate Node
-check driver has 68 lines.
+No neural application logic remains in TypeScript. The earlier generic browser
+bridge had 672 source lines, including reusable command execution. The current
+bridge has 290 lines. Plan replay and resource bookkeeping now run in
+`WebGPU.hs`. JavaScript only retains browser
+API wrappers, opaque object references, asynchronous transport, and result
+display. The separate Node check driver has 68 lines.
+
+Nine focused API probes pass. They check copy/readback and allocation-free
+two-run replay. They also reject invalid ranges, released dependencies, missing
+arguments, host copy sources, wrong bindings, duplicate handles, and host bounds.
+These probes use temporary programs. They are not committed test fixtures.
 
 The bridge keeps downloaded weight bytes in opaque host buffers. Haskell chooses
 their GPU allocations and upload commands without copying bulk weights into
@@ -463,9 +538,9 @@ during the 209 positions. The application releases all plan resources when the
 engine closes. The total WASM copy counter is not zero: it includes JSON
 responses, scalar checks, and diagnostic vectors.
 
-### Result after the application migration
+### Result after moving replay into MicroHs
 
-The 2026-10-15 run used Chrome 155.0.8059.40 on Apple M4. All six cases completed
+The 2026-10-15 run used Chrome 155.0.8059.82 on Apple M4. All six cases completed
 with GPU-selected tokens. Scalar, packed-matrix, BitLinear, and standalone layer
 checks passed their existing requirements. All 52 generated tokens are identical
 to the previous TypeScript-controlled and uncached MicroHs runs. All 950
@@ -473,12 +548,12 @@ diagnostic records are also identical to the uncached MicroHs run.
 
 | Case | Prompt tokens | Generated tokens | Tokens matching C | Execution seconds | Checked driver seconds |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| hello | 8 | 10 | 10 | 2.67 | 5.69 |
-| question | 13 | 10 | 10 | 3.36 | 6.54 |
-| arithmetic | 20 | 2 | 2 | 3.15 | 6.34 |
-| code | 27 | 10 | 10 | 5.66 | 9.57 |
-| swedish | 18 | 10 | 5 | 4.15 | 7.57 |
-| longer | 77 | 10 | 10 | 15.30 | 21.58 |
+| hello | 8 | 10 | 10 | 2.68 | 5.69 |
+| question | 13 | 10 | 10 | 3.40 | 6.58 |
+| arithmetic | 20 | 2 | 2 | 3.20 | 6.35 |
+| code | 27 | 10 | 10 | 5.78 | 9.73 |
+| swedish | 18 | 10 | 5 | 4.20 | 7.60 |
+| longer | 77 | 10 | 10 | 15.49 | 21.73 |
 
 Five cases matched the complete C token sequence. `swedish` first differed at
 generated token six, position 22: GPU `665`, C `27822`. It continued with its own
@@ -487,24 +562,44 @@ vectors with matching input histories. Four later Swedish vectors were not
 comparable. Six compared vectors met the former 1% bound. The maximum relative
 L2 error was 9.7894%. This is not a 1% or exact-token compatibility pass.
 
-The checked network driver took 64.06 s, including 6.75 s of shared plan setup.
-The cases spent 34.29 s in token execution and 22.99 s in numerical comparisons,
+The checked network driver took 65.07 s, including 7.36 s of shared plan setup.
+The cases spent 34.76 s in token execution and 22.92 s in numerical comparisons,
 logging, and remaining application control. Execution includes MicroHs argument
 checks, generic bridge calls, GPU work, token checks, and readback. It excludes
 the separate reference-vector comparisons. It is not a GPU-only measurement.
 The table excludes loading and shared plan setup from each case interval.
 
 Weight payload range fetch, validation, norm conversion, and GPU upload took
-another 5.94 s. This interval excludes metadata parsing, scalar scale preparation,
-and shader/pipeline setup. The complete application driver took 79.37 s,
-including the 2.45 s fixture sequence and setup. There were no CPU softmax
+another 6.70 s. This interval excludes metadata parsing, scalar scale preparation,
+and shader/pipeline setup. The complete application driver took 81.79 s,
+including the 2.67 s fixture sequence and setup. There were no CPU softmax
 roundtrips.
 
+Chrome updated after the earlier 64.06 s JavaScript-replay measurement. A saved
+copy of that runtime was therefore run again on Chrome 155.0.8059.82. The
+comparison used the same shaders, weights, references, and six-prompt workload.
+No GPU checks ran concurrently.
+
+| Interval | JavaScript replay | MicroHs replay |
+| --- | ---: | ---: |
+| Checked network driver | 64.86 s | 65.07 s |
+| Shared plan setup, included above | 6.70 s | 7.36 s |
+| Token execution, included above | 34.40 s | 34.76 s |
+| Diagnostics and control, included above | 23.73 s | 22.92 s |
+| Weight payload fetch, validation, conversion, and upload | 5.99 s | 6.70 s |
+| Complete application driver | 80.49 s | 81.79 s |
+
+The checked network interval increased by 0.3%. Token execution increased by
+1.0%. The complete application interval increased by 1.6%. These single
+observations do not establish a zero-overhead or portable performance claim.
+They show that the six-prompt run retains the plan-reuse speed with MicroHs
+replay. All 52 generated tokens and 950 diagnostics match the saved runtime.
+
 For the same checked workload, the uncached MicroHs runtime took 482.49 s.
-Plan reuse and streaming comparisons reduce that interval by about 7.5 times.
+Plan reuse and streaming comparisons reduce that interval by about 7.4 times.
 The older TypeScript-controlled driver took 39.78 s, including its diagnostics.
 The current checked driver is still about 1.6 times slower than that baseline.
-Do not compare the 34.29 s execution-only value directly with a complete checked
+Do not compare the 34.76 s execution-only value directly with a complete checked
 driver interval. These are single observations on one host, not benchmark
 medians or portable performance guarantees. The older 5.64 s upload measurement
 included scalar scale preparation, so the upload intervals also differ.
@@ -516,6 +611,39 @@ execution and fixture checks. The network fields `tokenReferenceMatched` and
 `WEBGPU_STRICT=1` selects a separate diagnostic profile. It enables Chrome's
 development-only strict-math option. This is not a portable WebGPU requirement
 or a production solution. The normal test does not enable this option.
+
+### Result after compiling complete softmax
+
+On 2026-10-16, the source-derived softmax passed all 23 browser fixtures and the
+same six-prompt workload on Chrome 155.0.8059.82 and Apple M4. The seven new
+fixtures cover complete softmax and the source-only doubled-output change.
+The largest softmax absolute error against stock MicroHs is `7.45e-9`.
+The doubled-output error is `1.49e-8`. Both satisfy the fixture bound of
+`2e-6 * max(1, abs(reference))`.
+
+All 52 GPU-selected tokens and all 950 diagnostic records match the preceding
+MicroHs-replay run exactly. This comparison is against the preceding GPU
+implementation, not a new claim of C equivalence. The C comparison still has
+47 matching tokens and maximum normalized-vector relative L2 error of 9.7894%.
+
+| Interval | Explicit softmax loops | Source-derived softmax |
+| --- | ---: | ---: |
+| Checked network driver | 65.07 s | 65.23 s |
+| Shared plan setup, included above | 7.36 s | 7.35 s |
+| Token execution, included above | 34.76 s | 34.70 s |
+| Diagnostics and control, included above | 22.92 s | 23.14 s |
+
+The checked interval increased by 0.24%. Token execution decreased by 0.18%.
+These are single observations on the same browser version. They do not establish
+a speed improvement or a zero-overhead guarantee. Weight payload loading took
+6.65 s separately. The complete application took 81.98 s, including all 23
+fixtures. The earlier application interval included only 16 fixtures.
+
+Weights remain resident. All 209 positions reuse the same four prepared plans.
+They create no GPU buffers, bind groups, or plans. Resident buffer bytes remain
+1,505,591,060 after plan preparation and after execution. The generated softmax
+schedule uses the existing attention score vector and no additional host dispatch.
+The five native Metal checks also pass after the scalar frontend extension.
 
 ## Compiler boundary
 
@@ -538,10 +666,11 @@ The checks also exercise categorical currying and application directly.
 The source fragment accepts monomorphic `Float` arithmetic, absolute values,
 minimum and maximum, square root, exponential, trigonometry, and powers. It
 accepts bounded rounding, `Int32` conversion, addition, negation, equality,
-integer constants, and scalar conditionals. It rejects source-level let bindings,
-recursive functions, imported helpers, arbitrary closures, and effects. It resolves generated dictionary
-bindings only. The explicit rejection of source closures avoids incorrect capture
-when variables are shadowed.
+integer constants, and scalar conditionals. It accepts nonrecursive variable
+bindings, variable lambdas, and same-module helper applications. It preserves
+lexical capture under shadowing. It rejects recursion, unsupported patterns,
+source `where` bindings, imported helper bodies, effects, and runtime function values. It continues to
+validate the exact primitive dictionaries after source normalization.
 
 `FloatWGSL.hs` provides compiler helpers for binary32 multiplication, division,
 and square root used by the strict kernels. The head uses a separate relaxed
@@ -585,11 +714,24 @@ length that is not divisible by 128. Two matrices come from layer 0 of the real 
 the Q projection and the MLP down projection. All GPU integer results must match
 both the categorical CPU interpreter and `bnmatmul_ternary` from `cbits/bndot.c`.
 
-Negative checks reject an unsupported primitive, a source closure, an unproved
+Negative checks reject an unsupported primitive, source recursion, an unproved
 reduction graph, a matrix without an overflow proof, and ill-typed source. The
 upstream type checker rejects the last case. The stock runtime and CPU interpreter
 must both raise `Overflow` for addition beyond `maxBound` and negation of `minBound`.
 The runner validates fixture sizes and reports failed GPU commands.
+
+The array checks compare stock MicroHs with the graph interpreter. Six standalone
+softmax cases cover lengths 1, 8, 4, 5, 131, and 2048. A seventh case adds an outer
+map in source and checks the changed GPU output. Each result must satisfy
+`2e-6 * max(1, abs(reference))`. The compiler check also rejects nonfinite and
+empty inputs, recursive source, and element-dependent nested arrays. It checks
+lexical capture and zero extra vector storage for the softmax plan.
+
+Temporary frontend and schedule probes also cover helper calls, partial
+applications, dictionary validation, multiple captures, shared graph nodes,
+branching lifetimes, and ordered map/sum fusion. These probes are not part of
+the repository test suite. The browser checks use the shared compiler and
+runtime rather than a separate JavaScript implementation.
 
 ## Measurements
 
@@ -631,6 +773,9 @@ timer rounded its execution time to zero at the printed precision.
 | --- | --- |
 | `Programs.hs` | Scalar example and BitLinear numerical functions |
 | `LayerPrograms.hs` | Numerical functions for decoder and head operations |
+| `ArrayPrograms.hs`, `SourceArray.hs` | Complete softmax source and array library CPU interpretation |
+| `ArrayCompiler.hs` | Checked array source to a shared typed graph |
+| `ArrayGraph.hs` | Array interpretation, workgroup scheduling, storage reuse, and WGSL lowering |
 | `Frontend.hs` | Upstream MicroHs parsing, import checking, and type checking |
 | `Compiler.hs` | Checked source fragment to typed categorical graphs |
 | `CCC.hs` | Typed operations and CPU, Metal, C, and WGSL interpretations |
@@ -645,15 +790,17 @@ timer rounded its execution time to zero at the printed precision.
 | `metal-runner.m` | Physical Metal execution, checks, and timing |
 | `WebJSON.hs`, `WebModel.hs` | Metadata parsing, range checks, and model tensor access |
 | `WebTensor.hs` | Application tensor roles, resource planning, and cache state |
+| `WebGPU.hs` | Generic resource metadata, lifetime checks, counters, and prepared plan replay |
 | `WebFixtures.hs` | Fixture execution, readback validation, and check results |
+| `ArrayFixtures.hs` | Complete softmax and source-change GPU checks |
 | `WebBrowser.hs`, `WebFFI.hs` | Generic browser operations and asynchronous continuation bridge |
 | `BufferChecks.hs` | Generated GPU representation and result validation kernels |
-| `web/bridge.ts` | Generic WebGPU/HTTP object bridge; no neural application logic |
+| `web/bridge.ts` | Browser API calls and opaque object references; no plan replay or resource metadata |
 | `web/check.ts` | Local range server and headless Chrome driver |
 
 ### Change an existing numerical function
 
-1. Edit its definition in `Programs.hs` or `LayerPrograms.hs`. Keep an explicit
+1. Edit its definition in `Programs.hs`, `LayerPrograms.hs`, or `ArrayPrograms.hs`. Keep an explicit
    supported monomorphic signature. Do not edit generated WGSL.
 2. Run `make -C spike/ccc fixtures`. This compiles the checked source, compares
    the source and categorical interpretations where covered, and regenerates
@@ -671,14 +818,18 @@ timer rounded its execution time to zero at the printed precision.
 
 Use an existing scalar primitive when possible. A new primitive needs explicit
 frontend recognition, a typed `Cat` operation, and matching interpreters.
-A new array operation also needs an explicit execution template, shape checks,
-buffer bindings, and a call from the MicroHs tensor program. Merely defining an
+Within the supported vector fragment, compose `SourceArray` operations and scalar
+helpers in source. The compiler derives the workgroup plan. A new array intrinsic
+needs a graph operation, shape rules, a CPU interpretation, and a lowering rule.
+Tensor operations outside that fragment still need explicit execution templates,
+buffer bindings, and calls from the MicroHs tensor program. Merely defining an
 arbitrary Haskell function does not make the compiler select or parallelize it.
 
 Keep JavaScript foreign imports in `WebFFI.hs`. Keep numerical shader bodies in
 the Haskell compiler path. Keep application ownership, shapes, generation, and
-validation in MicroHs. The browser bridge must expose generic operations only;
-it must not become a second implementation of the application.
+validation in MicroHs. Keep generic replay and resource bookkeeping in
+`WebGPU.hs`. The browser bridge must expose browser API calls only; it must not
+interpret plans or become a second implementation of the application.
 
 ## Troubleshooting
 
@@ -698,7 +849,8 @@ it must not become a second implementation of the application.
   returns `206` responses with validated ranges. A basic static server or a
   `file://` page does not provide the same model-loading path.
 - **Unsupported source expression:** check the supported fragment above. Source
-  lets, recursion, imported helpers, and arbitrary closures are not lowered.
+  recursion, imported helper bodies, unsupported patterns, and runtime function
+  values are not lowered.
 - **Network errors exceed 1%, or tokens differ:** inspect `web-result.json`.
   Execution success does not mean numerical compatibility. The current results
   intentionally retain these differences as diagnostics.

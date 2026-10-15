@@ -44,18 +44,6 @@ rotateFirst first second cosine sine = first * cosine - second * sine
 rotateSecond :: Float -> Float -> Float -> Float -> Float
 rotateSecond first second cosine sine = second * cosine + first * sine
 
--- | Compute a stable softmax numerator.
-softExp :: Float -> Float -> Float
-softExp score maximum = exp (score - maximum)
-
--- | Divide a finite numerator by a nonzero denominator.
-divide :: Float -> Float -> Float
-divide numerator denominator = numerator / denominator
-
--- | Select the larger finite attention score.
-maximumScore :: Float -> Float -> Float
-maximumScore left right = max left right
-
 -- | Compare finite logits for greedy token selection.
 better :: Float -> Float -> Bool
 better candidate current = candidate > current

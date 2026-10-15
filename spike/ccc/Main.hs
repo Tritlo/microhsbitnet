@@ -2,12 +2,14 @@
 
 module Main (main) where
 
+import ArrayCompiler (compileArray)
+import qualified ArrayGraph
 import Arrays
 import BufferChecks (bufferCheckSource)
 import CCC
 import Compiler
 import Control.Exception (ArithException (Overflow), SomeException, evaluate, try)
-import Control.Monad (forM, unless)
+import Control.Monad (forM, forM_, unless)
 import Data.Bits (shiftL, (.|.))
 import qualified Data.ByteString as BS
 import Data.ByteString.Builder (floatLE, int32LE, toLazyByteString)
@@ -16,6 +18,7 @@ import Data.Int (Int32, Int8)
 import Frontend (checkedModule)
 import HeadArrays (headSource)
 import LayerArrays (layerSource)
+import qualified Programs
 import System.Directory (createDirectoryIfMissing)
 import System.Process (readProcess)
 
@@ -34,7 +37,9 @@ main = do
     webShader <- either fail pure (wgslSource scalar plan)
     bitLinearShader <- either fail pure (bitLinearSource peak quantize rescale plan)
     layerChecked <- checkedModule "spike/ccc/LayerPrograms.hs"
-    layerShader <- either fail pure (layerSource layerChecked)
+    arrayChecked <- checkedModule "spike/ccc/ArrayPrograms.hs"
+    softmax <- either fail pure (compileArray arrayChecked "softmax")
+    layerShader <- either fail pure (layerSource layerChecked softmax)
     headShader <- either fail pure (headSource layerChecked)
     frequency <- either fail pure (compileFloatPair layerChecked "frequency")
     multiply <- either fail pure (compileFloatPair layerChecked "product")
@@ -54,12 +59,13 @@ main = do
         expectedContributions = [runCat contribution (field, activation) | field <- [0 .. 2], activation <- [-128, -1, 0, 1, 127]]
     sourceResults <- lines <$> readProcess "bin/ccc-spike/source" [] ""
     case sourceResults of
-        [scalarResults, contributionResults, "True", "True", peakResults, quantizeResults, rescaleResults] -> do
+        [scalarResults, contributionResults, "True", "True", peakResults, quantizeResults, rescaleResults, arrayResults] -> do
             unless ((read scalarResults :: [Float]) == expectedScalar) $ fail "Stock MicroHs and categorical scalar results differ"
             unless ((read contributionResults :: [Int32]) == expectedContributions) $ fail "Stock MicroHs and categorical contribution results differ"
             unless ((read peakResults :: [Float]) == map (runCat peak) [(-8, 4), (0, 0.0000001)]) $ fail "Stock MicroHs and categorical maxima differ"
             unless ((read quantizeResults :: [Int32]) == [runCat quantize (value, 127) | value <- [-127, -126.5, -2.5, -1.5, -0.5, 0, 0.5, 1.5, 2.5, 126.5, 127]]) $ fail "Stock MicroHs and categorical quantization differ"
             unless ((read rescaleResults :: [Float]) == map (runCat rescale) [(1024, (0.125, 127)), (-17, (0.5, 0))]) $ fail "Stock MicroHs and categorical rescaling differ"
+            arrayChecks softmax (read arrayResults)
         _ -> fail "Unexpected stock MicroHs reference output"
     unless (runCat (Compose Apply (Pair (Compose (Curry AddInt) First) Second)) (7, 4) == (11 :: Int32)) $
         fail "Categorical curry/apply check failed"
@@ -134,6 +140,42 @@ main = do
     putStrLn "CCC curry/apply and negative frontend checks PASS"
     putStrLn "Generated Metal, WGSL, and graphs.txt"
 
+-- | Check complete array programs against stock MicroHs and generate GPU fixtures.
+arrayChecks :: ArrayGraph.Program -> [[Float]] -> IO ()
+arrayChecks softmax references = do
+    unless (length references == length Programs.arrayInputs) $ fail "Incomplete stock MicroHs array reference"
+    let directory = "bin/ccc-spike/array-cases/"
+        close left right = abs (left - right) <= 0.000002 * max 1 (abs right)
+    createDirectoryIfMissing True directory
+    shader <- either fail pure (ArrayGraph.standaloneSource softmax)
+    writeFile "bin/ccc-spike/softmax.wgsl" shader
+    plan <- either fail pure (ArrayGraph.emitWorkgroup softmax 2048 "scores" "count")
+    unless (ArrayGraph.scratchVectors plan == 0) $ fail "Softmax requires unexpected extra vector storage"
+    forM_ (zip Programs.arrayInputs references) $ \((name, inputs), expected) -> do
+        actual <- either fail pure (ArrayGraph.runProgram softmax inputs)
+        unless (length actual == length expected && and (zipWith close actual expected)) $ fail ("Stock MicroHs and array graph differ: " ++ name)
+        BL.writeFile (directory ++ name ++ ".input.bin") (toLazyByteString (foldMap floatLE inputs))
+        BL.writeFile (directory ++ name ++ ".expected.bin") (toLazyByteString (foldMap floatLE expected))
+    forM_ [[], [0 / 0], [1 / 0]] $ \invalid -> case ArrayGraph.runProgram softmax invalid of
+        Left _ -> pure ()
+        Right _ -> fail "Invalid array input was accepted"
+    source <- readFile "spike/ccc/ArrayPrograms.hs"
+    let changedPath = "bin/ccc-spike/ArrayChanged.hs"
+    writeFile changedPath (source ++ "\ndoubled :: A.Vector Float -> A.Vector Float\ndoubled scores = A.map (\\value -> 2 * value) (softmax scores)\n")
+    changed <- checkedModule changedPath >>= either fail pure . (`compileArray` "doubled")
+    changedShader <- either fail pure (ArrayGraph.standaloneSource changed)
+    unless (changedShader /= shader) $ fail "A source array change did not change WGSL"
+    let (_, inputs) = Programs.arrayInputs !! 2
+        expected = map (* 2) (references !! 2)
+    actual <- either fail pure (ArrayGraph.runProgram changed inputs)
+    unless (length actual == length expected && and (zipWith close actual expected)) $ fail "Changed source and array interpretation differ"
+    writeFile "bin/ccc-spike/softmax-doubled.wgsl" changedShader
+    BL.writeFile (directory ++ "doubled.input.bin") (toLazyByteString (foldMap floatLE inputs))
+    BL.writeFile (directory ++ "doubled.expected.bin") (toLazyByteString (foldMap floatLE expected))
+    writeFile (directory ++ "cases.txt") (unlines ([name ++ " " ++ show (length values) | (name, values) <- Programs.arrayInputs] ++ ["doubled " ++ show (length inputs)]))
+    writeFile "bin/ccc-spike/array-graph.txt" (ArrayGraph.describe softmax ++ "\n" ++ unlines (ArrayGraph.declarations plan ++ ArrayGraph.statements plan))
+    putStrLn "Stock MicroHs / array graph parity, source mutation, and scratch reuse PASS"
+
 -- | Create packed matrices that exercise all fields and a partial thread group.
 writeSynthetic :: FilePath -> (String, Int, Int) -> IO ()
 writeSynthetic directory (name, columns, rows) = do
@@ -155,9 +197,14 @@ negativeChecks = do
     case compileScalar unsupported "scalar" of
         Left _ -> pure ()
         Right _ -> fail "Unsupported primitive was accepted"
-    case compileScalar unsupported "shadowed" of
+    shadowed <- either fail pure (compileScalar unsupported "shadowed")
+    unless (runCat shadowed 7 == 9) $ fail "Source let capture changed under shadowing"
+    case compileScalar unsupported "recursive" of
         Left _ -> pure ()
-        Right _ -> fail "Unsupported source closure was accepted"
+        Right _ -> fail "Recursive source was accepted"
+    case compileArray unsupported "dependentArray" of
+        Left _ -> pure ()
+        Right _ -> fail "Element-dependent nested array was accepted"
     case packedMatVec (Compose AddInt (Pair First Second)) (Compose AddInt (Pair Second First)) of
         Left _ -> pure ()
         Right _ -> fail "Unproved reduction was accepted"
