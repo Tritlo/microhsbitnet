@@ -6,6 +6,51 @@ Augustsson's combinator-graph Haskell — with no Python at runtime. Tokenizer, 
 transformer, KV-cached generation, detokenizer: all MicroHaskell, accelerated by a small,
 focused C core.
 
+## MicroHs → CCC → WASM and WebGPU
+
+This branch adds an experimental path that replaces the handwritten C neural
+kernels with GPU kernels generated from MicroHs numerical source. The existing
+native implementation below remains separate and unchanged.
+
+There are two compilation paths:
+
+```text
+MicroHs numerical functions → checked typed expressions → categorical and array graphs → WGSL
+MicroHs layer and network programs → stock MicroHs → C → Emscripten → WASM
+```
+
+WASM executes the application, including model metadata, tensor planning, cache
+state, generation, and diagnostics. MicroHs also owns generic resource metadata,
+lifetime checks, counters, and execution-plan replay. A browser bridge exposes WebGPU and
+HTTP operations through opaque handles. WebGPU executes the generated kernels. Model weights,
+activations, and the KV cache remain on the GPU between operations. Softmax runs
+on the GPU too. Its complete Haskell definition uses maps and ordered reductions.
+The compiler derives its workgroup schedule and reuses the attention score storage.
+Other tensor operations still use explicit array templates.
+There is no C neural kernel or CPU softmax fallback in the browser runtime.
+The MicroHs runtime itself still comes from upstream C.
+
+The MicroHs-controlled experiment runs the complete 30-layer model across six prompts.
+Five generated sequences match the native C reference exactly. Swedish diverges
+after five matching tokens. The former 1% vector-error target is **not met**;
+numerical comparisons are diagnostics, not a compatibility claim.
+
+The current implementation passes all 23 browser fixture checks and the six-prompt
+rerun on Apple M4. All 52 GPU-selected tokens are unchanged from the earlier
+runtime. Weights upload once and remain GPU-resident; no bulk weight bytes pass
+through WASM. MicroHs prepares and replays reusable plans with persistent GPU
+buffers and bind groups. The browser bridge has 290 TypeScript source lines.
+The checked suite takes 65.23 s, versus 65.07 s before source-derived softmax
+on the same Chrome build. Token execution takes 34.70 s versus 34.76 s.
+These are single observations. The earlier uncached MicroHs run took 482.49 s.
+The full checked run still exceeds the older TypeScript-controlled 39.78 s.
+
+The [complete process and reproduction guide](spike/ccc/README.md) explains the
+categorical representation, source-to-kernel examples, pinned toolchain, build
+commands, GPU execution, checks, measurements, and current limits. Start there
+for the WASM/WebGPU work. [The milestone plan](spike/ccc/PLAN.md) records the
+acceptance criteria. The rest of this README describes the original native path.
+
 The conceit: BitNet's weights are **ternary** — every weight is `-1`, `0`, or `+1`. So a weight
 is not a number to multiply by; it is a **list operation** on an activation:
 
@@ -139,6 +184,10 @@ Needs a stock [MicroHs](https://github.com/augustss/MicroHs) (`gmhs` on `PATH` o
 inits the pinned-MicroHs submodule (`vendor/microhs/`, documentary — the build uses your installed
 `gmhs`) and fetches the model weights + tokenizer (~1.2 GB, only if missing), then builds.
 
+The current MicroHs pin is 0.16.10.0 (`e11ae213`). To use the pinned compiler, run
+`make -C vendor/microhs bin/gmhs bin/cpphs mhs.conf`, then pass
+`GMHS="$PWD/vendor/microhs/bin/gmhs"` to `make`.
+
 ```
 make            # init submodule + fetch model (if missing) + build everything
 ./bin/m4 "Your prompt here" 32          # one-shot, 32 tokens
@@ -157,3 +206,5 @@ make testkinds testtok                  # unit checks (kernels, tokenizer)
 - `cbits/` — the C executor: `bndot.c` (math kernels), `tokparse.c` (tokenizer parser).
 - `PLAN.md`, `CONTEXT.md`, `CHANGELOG.md` — the staged plan, the glossary, and the full history.
 - `test/` — Python oracles, used only to validate, never at runtime.
+- [`spike/ccc/`](spike/ccc/README.md) — a typed categorical compiler experiment with
+  a MicroHs WASM program, generated Metal/WGSL kernels, and WebGPU model checks.
