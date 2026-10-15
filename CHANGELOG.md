@@ -7,8 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Update the MicroHs submodule from `b1f66ad7` to upstream `master` at `e11ae213`
+  (MicroHs 0.16.10.0).
+
 ### Added
 
+- Categorical GPU spike in `spike/ccc/`: type-check selected MicroHs functions,
+  translate them to typed categorical graphs, and generate Metal and WGSL kernels.
+  Run a MicroHs WASM control program on WebGPU. Check packed matrix products,
+  complete BitLinear operations, a cached decoder layer, and full 30-layer
+  inference against the CPU implementations. Generate RoPE constants from source
+  at build time. Compile source softmax with WGSL `exp` into one GPU attention
+  kernel, without WASM softmax callbacks or score readbacks. Submit once per
+  consumed token and retain weights and the KV cache on the GPU. Add six native C
+  reference cases. Report full-model vector errors and token discrepancies as
+  diagnostics; continue with valid GPU-selected tokens. All six cases execute;
+  five match the C token sequence. The former 1% vector bound is not met.
+  Keep the experiment separate from the existing inference path.
 - Initial project setup.
 - Fetched `microsoft/bitnet-b1.58-2B-4T` (packed 1.58-bit weights) into `models/` (gitignored).
 - Design phase: `CONTEXT.md` glossary and `PLAN.md` (M0–M4 staged ladder and pinned model/packing

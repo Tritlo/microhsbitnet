@@ -6,6 +6,37 @@ Augustsson's combinator-graph Haskell — with no Python at runtime. Tokenizer, 
 transformer, KV-cached generation, detokenizer: all MicroHaskell, accelerated by a small,
 focused C core.
 
+## MicroHs → CCC → WASM and WebGPU
+
+This branch adds an experimental path that replaces the handwritten C neural
+kernels with GPU kernels generated from MicroHs numerical source. The existing
+native implementation below remains separate and unchanged.
+
+There are two compilation paths:
+
+```text
+MicroHs numerical functions → checked typed expressions → categorical graphs → WGSL
+MicroHs layer and network programs → stock MicroHs → C → Emscripten → WASM
+```
+
+WASM executes the network program. A TypeScript host manages GPU resources and
+encodes its operations. WebGPU executes the generated kernels. Model weights,
+activations, and the KV cache remain on the GPU between operations. Softmax runs
+on the GPU too; it comes from `exp (score - maximum)` in the Haskell source.
+There is no C neural kernel or CPU softmax fallback in the browser runtime.
+The MicroHs runtime itself still comes from upstream C.
+
+The current experiment runs the complete 30-layer model across six prompts.
+Five generated sequences match the native C reference exactly. Swedish diverges
+after five matching tokens. The former 1% vector-error target is **not met**;
+numerical comparisons are diagnostics, not a compatibility claim.
+
+The [complete process and reproduction guide](spike/ccc/README.md) explains the
+categorical representation, source-to-kernel examples, pinned toolchain, build
+commands, GPU execution, checks, measurements, and current limits. Start there
+for the WASM/WebGPU work. [The milestone plan](spike/ccc/PLAN.md) records the
+acceptance criteria. The rest of this README describes the original native path.
+
 The conceit: BitNet's weights are **ternary** — every weight is `-1`, `0`, or `+1`. So a weight
 is not a number to multiply by; it is a **list operation** on an activation:
 
@@ -139,6 +170,10 @@ Needs a stock [MicroHs](https://github.com/augustss/MicroHs) (`gmhs` on `PATH` o
 inits the pinned-MicroHs submodule (`vendor/microhs/`, documentary — the build uses your installed
 `gmhs`) and fetches the model weights + tokenizer (~1.2 GB, only if missing), then builds.
 
+The current MicroHs pin is 0.16.10.0 (`e11ae213`). To use the pinned compiler, run
+`make -C vendor/microhs bin/gmhs bin/cpphs mhs.conf`, then pass
+`GMHS="$PWD/vendor/microhs/bin/gmhs"` to `make`.
+
 ```
 make            # init submodule + fetch model (if missing) + build everything
 ./bin/m4 "Your prompt here" 32          # one-shot, 32 tokens
@@ -157,3 +192,5 @@ make testkinds testtok                  # unit checks (kernels, tokenizer)
 - `cbits/` — the C executor: `bndot.c` (math kernels), `tokparse.c` (tokenizer parser).
 - `PLAN.md`, `CONTEXT.md`, `CHANGELOG.md` — the staged plan, the glossary, and the full history.
 - `test/` — Python oracles, used only to validate, never at runtime.
+- [`spike/ccc/`](spike/ccc/README.md) — a typed categorical compiler experiment with
+  a MicroHs WASM program, generated Metal/WGSL kernels, and WebGPU model checks.
