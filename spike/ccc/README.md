@@ -308,7 +308,10 @@ make -C spike/ccc graphics-data
 `bin/ccc-spike/graphics-data.json` contains exact source excerpts, emitted
 MicroHs terms, categorical or array graphs, and WGSL. The scalar shader comes
 from the direct-combinator graph. The trit contribution uses the expression
-compiler. Numeric and array primitives remain named leaves in the pictures.
+compiler. Squares in the pictures retain numeric method references, array-function
+references, concrete typeclass dictionaries, and literals. Their implementations
+and transitive dependencies are not expanded into iota. The preview lists each
+retained symbol and its occurrence count.
 
 Use the renderer in the adjacent `Combinate-ccc-demo` checkout:
 
