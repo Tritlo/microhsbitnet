@@ -61,13 +61,20 @@ function log(message: string): void {
   const progress = document.querySelector("#progress");
   const loaded = /Loaded (\d+)\/(\d+)/.exec(message);
   if (progress && loaded) {
+    const status = document.querySelector("#status");
+    if (status) status.textContent = "Loading model weights…";
     const done = Number(loaded[1]);
     const total = Number(loaded[2]);
     progress.textContent = `Weights ${done}/${total}`;
     const bar = document.querySelector<HTMLElement>("#bar");
     if (bar) bar.style.width = `${Math.round((100 * done) / total)}%`;
   }
-  if (message.startsWith("PROMPT ")) appendTranscript("\n\n" + message.slice("PROMPT ".length) + "\n");
+  if (message.startsWith("PROMPT ")) {
+    const status = document.querySelector("#status");
+    if (status) status.textContent = "Generating…";
+    appendTranscript(tokenDecoder.decode());
+    appendTranscript("\n\n" + message.slice("PROMPT ".length) + "\n");
+  }
   if (message.startsWith("TOKEN ")) {
     const id = Number(message.slice("TOKEN ".length));
     if (Number.isInteger(id)) appendTranscript(decodeToken(id));
@@ -76,6 +83,8 @@ function log(message: string): void {
 }
 
 function publish(result: BridgeReport): void {
+  const status = document.querySelector("#status");
+  if (status && result.passed) status.textContent = "Generation finished.";
   stopped = true;
   browser.microhsCheck = { ...result, adapter: adapterDescription ?? {}, messages: messages.slice() };
   abort.abort();
@@ -87,6 +96,8 @@ function failure(reason: unknown): void {
   if (stopped && browser.microhsCheck?.passed === false) return;
   const error = reason instanceof Error ? reason.stack ?? reason.message : String(reason);
   log(error);
+  const status = document.querySelector("#status");
+  if (status) status.textContent = error;
   publish({ passed: false, error });
 }
 
@@ -133,7 +144,7 @@ async function initialize(): Promise<unknown> {
   }
   const { maxBufferSize, maxStorageBufferBindingSize, maxUniformBufferBindingSize, maxComputeWorkgroupsPerDimension } = device.limits;
   const params = new URLSearchParams(location.search);
-  const showcase = params.get("demo") === "1";
+  const showcase = demoMode;
   const model =
     params.get("model") ??
     (showcase ? "https://huggingface.co/microsoft/bitnet-b1.58-2B-4T/resolve/main/model.safetensors" : "/model.safetensors");
@@ -295,7 +306,9 @@ browser.microhsBrowser = {
 };
 
 const demoParams = new URLSearchParams(location.search);
+const demoMode = demoParams.get("demo") === "1" || location.pathname.endsWith("/demo.html");
 const tokenBytes = new Map<number, Uint8Array>();
+const tokenDecoder = new TextDecoder("utf-8", { fatal: false });
 
 function appendTranscript(text: string): void {
   const transcript = document.querySelector("#transcript");
@@ -310,14 +323,14 @@ function levelToByte(codepoint: number): number {
 }
 
 function decodeToken(id: number): string {
-  if (id === 128009 || id === 128001) return "";
+  if (id === 128009 || id === 128001) return tokenDecoder.decode();
   const bytes = tokenBytes.get(id);
   if (!bytes) return "";
-  return new TextDecoder("utf-8", { fatal: false }).decode(bytes);
+  return tokenDecoder.decode(bytes, { stream: true });
 }
 
 async function loadDecoder(): Promise<void> {
-  if (demoParams.get("demo") !== "1") return;
+  if (!demoMode) return;
   const response = await fetch("https://huggingface.co/microsoft/bitnet-b1.58-2B-4T/resolve/main/tokenizer.json");
   if (!response.ok) throw new Error(`Tokenizer download failed: HTTP ${response.status}`);
   const tokenizer = (await response.json()) as { model?: { vocab?: Record<string, number> }; added_tokens?: { id: number; content: string }[] };
@@ -340,7 +353,7 @@ async function start(): Promise<void> {
     publish({ passed: false, error: message });
     return;
   }
-  if (demoParams.get("demo") === "1") void loadDecoder().catch((error: unknown) => log(error instanceof Error ? error.message : String(error)));
+  if (demoMode) await loadDecoder();
   const modulePath = "./microhs.mjs";
   const createMicroHs = (await import(modulePath)).default as (options: { print(message: string): void; printErr(message: string): void }) => Promise<WasmModule>;
   wasm = await createMicroHs({ print: log, printErr: log });

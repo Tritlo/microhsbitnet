@@ -15,18 +15,17 @@ MicroHs program compiled to C and then WebAssembly. The browser page only
 holds WebGPU buffers and shows the text.
 
 ```text
-Haskell source  →  CCC / array graph  →  WGSL kernel
+Haskell source  →  MicroHs combinators  →  CCC / array graph  →  WGSL kernel
 Haskell loop    →  MicroHs  →  C  →  WASM  →  WebGPU
 ```
 
 Locally, from this branch (GHC, Emscripten, and Node on `PATH`; details are in `spike/ccc/README.md`):
 
 ```sh
-git clone --branch ccc --recurse-submodules https://github.com/Tritlo/microhsbitnet.git
-cd microhsbitnet
 make -C vendor/microhs bin/gmhs bin/cpphs mhs.conf
+cd spike/ccc/web && npm ci && cd ../../..
 make -C spike/ccc web-demo
-cd spike/ccc/web && npm ci && DEMO=1 HEADED=1 npm run demo
+cd spike/ccc/web && npm run demo
 ```
 
 The showcase page is `spike/ccc/web/demo.html`. It streams five prompts and
@@ -44,20 +43,26 @@ expression compiler; the packed-row schedule is still a template, and the
 Scott-encoded `if` in the trit contribution is not a CCC arrow yet.
 Attention's score, softmax, and mix use those combinator arrows inside one
 kernel template. The LM head multiplies and adds with the same combinators,
-interpreted as a sequential binary64 dot so the argmax matches the C
-reference's double accumulator. The TypeScript file is the WebGPU binding,
-355 lines, with no tensor schedule in it.
+interpreted as a sequential binary64 dot in the C reference's accumulator
+order. The TypeScript file is the WebGPU binding,
+with no tensor schedule in it.
 
-Limits, stated plainly: context is still 2048 positions because the attention
-scores live in workgroup memory. There is no CPU fallback. A browser without
-WebGPU gets a short explanation and stops. The full 30-layer token run was
-last measured on an M4 in Chrome, before the exp and head changes in this
-branch: six prompts, 47/52 tokens matched, max relative L2 9.79%, checked
-driver about 65 s. This branch's shader arithmetic matches libm `expf` and
-binary64 add/mul on a software Vulkan adapter (32,768 samples, 0 mismatches).
-The 2B WebGPU run was not remeasured here, because this machine has no
-physical GPU. Until that rerun, do not treat the old 9.79% or 65 s figures as
-the numbers for these kernels.
+The 2026-10-28 Apple M4 / Chrome 156 run passes all 23 browser fixtures and
+matches all 52 C-reference tokens across six prompts, including Swedish.
+The checked network takes 74.86 s, versus 65.50 s for the unchanged base in
+the same browser. Token execution takes 42.40 s versus 34.78 s. These are
+single observed runs; the checked interval includes plan setup and diagnostics.
+
+The maximum normalized-vector relative L2 error is 8.85%; 138/209 vectors
+are within 1%. The base had 9.79% maximum error and 6/205 vectors within 1%.
+The 1% target still fails. Token agreement does not establish numerical parity.
+Binary64 add/multiply checks are exact across 32,768 samples. The exponential
+has 107 differences from macOS `expf`, all within 1 ULP.
+
+Context remains limited to 2048 positions because attention scores use
+workgroup memory. WebGPU is required. The browser reports a missing GPU and
+stops. [The detailed results](spike/ccc/README.md#physical-webgpu-review-2026-10-28)
+include the initial head slowdown, its correction, and reproduction commands.
 
 GitHub Pages is wired in `.github/workflows/ccc-pages.yml` and does not run on
 push. It deploys only after a manual run and only if the repository variable
@@ -77,7 +82,7 @@ native implementation below remains separate and unchanged.
 There are two compilation paths:
 
 ```text
-MicroHs numerical functions → checked typed expressions → categorical and array graphs → WGSL
+MicroHs numerical functions → checked source → MicroHs combinators → categorical and array graphs → WGSL
 MicroHs layer and network programs → stock MicroHs → C → Emscripten → WASM
 ```
 
@@ -94,18 +99,18 @@ around source expressions. The LM head dot is sequential binary64.
 There is no C neural kernel or CPU softmax fallback in the browser runtime.
 The MicroHs runtime itself still comes from upstream C.
 
-The MicroHs-controlled experiment runs the complete 30-layer model across six prompts.
+The 2026-10-16 experiment ran the complete 30-layer model across six prompts.
 Five generated sequences match the native C reference exactly. Swedish diverges
 after five matching tokens. The former 1% vector-error target was **not met** on that run;
 numerical comparisons are diagnostics, not a compatibility claim.
 The sentences below are that M4 measurement. The visitor section above is the
 status of the kernels in this branch.
 
-The current implementation passes all 23 browser fixture checks and the six-prompt
-rerun on Apple M4. All 52 GPU-selected tokens are unchanged from the earlier
+That implementation passed all 23 browser fixture checks and the six-prompt
+rerun on Apple M4. All 52 GPU-selected tokens were unchanged from the earlier
 runtime. Weights upload once and remain GPU-resident; no bulk weight bytes pass
 through WASM. MicroHs prepares and replays reusable plans with persistent GPU
-buffers and bind groups. The browser bridge was 290 lines before the showcase page; it is 355 lines now, and it still contains no tensor schedule.
+buffers and bind groups. The browser bridge contains no tensor schedule.
 The checked suite takes 65.23 s, versus 65.07 s before source-derived softmax
 on the same Chrome build. Token execution takes 34.70 s versus 34.76 s.
 These are single observations. The earlier uncached MicroHs run took 482.49 s.

@@ -251,8 +251,10 @@ application = do
     require (runPlanCompilations == 0) "Network execution compiled new plans after plan preparation"
     require (runPlanRuns == fromIntegral positions) "Expected one reusable plan run per consumed network token"
     disposeEngine engine
-    logMessage messages ("Full-model diagnostics: " ++ show (errorVectors errors) ++ " comparable normalized vectors; maximum relative L2 " ++ show (100 * errorRelative errors) ++ "%; " ++ show (errorWithinBound errors) ++ " within 1%")
-    logMessage messages
+    unless showcase $
+        logMessage messages ("Full-model diagnostics: " ++ show (errorVectors errors) ++ " comparable normalized vectors; maximum relative L2 " ++ show (100 * errorRelative errors) ++ "%; " ++ show (errorWithinBound errors) ++ " within 1%")
+    logMessage
+        messages
         ( if showcase
             then "Showcase generation finished. Swedish stays in the reference check and is not in this prompt list."
             else "MicroHs control and validation -> generated WGSL -> physical WebGPU execution PASS; full-model accuracy is diagnostic"
@@ -275,7 +277,7 @@ application = do
                 , ("mode", JString (if showcase then "demo" else "check"))
                 , ("network", networkJSON uploadMs planSetupMs (networkFinished - networkStarted) results errors)
                 , ("demo", let shown = filter (not . swedish) results in networkJSON uploadMs planSetupMs (sum (map resultDriverMs shown)) shown (foldl' combineErrors emptyErrors (map resultErrors shown)))
-                , ("reference", networkJSON uploadMs planSetupMs (networkFinished - networkStarted) results errors)
+                , ("reference", if showcase then JNull else networkJSON uploadMs planSetupMs (networkFinished - networkStarted) results errors)
                 , ("diagnostics", JArray (reverse (errorRecords errors)))
                 , ("residency", residency)
                 , ("messages", JArray (map JString recordedMessages))
@@ -613,7 +615,14 @@ runCase messages engine plans showcase tokenLimit testCase = do
     result <- runPositions messages engine plans showcase tokenLimit testCase started (CaseState 0 Nothing True [] emptyErrors 0 0)
     forM_ (caseReferences testCase) $ \reference ->
         liftBrowser (mapM_ dropHost (referenceHidden reference : referenceNormed reference : referenceLayers reference))
-    logMessage messages (caseName testCase ++ ": " ++ show (errorVectors (resultErrors result)) ++ "/" ++ show (resultPositions result) ++ " normalized vectors comparable; " ++ show (matchingTokens result) ++ "/" ++ show (length (resultTokens result)) ++ " GPU tokens match C; " ++ show (resultDriverMs result) ++ " ms")
+    logMessage
+        messages
+        ( caseName testCase
+            ++ ": "
+            ++ (if showcase then show (length (resultTokens result)) ++ " GPU tokens; C reference not compared; " else show (errorVectors (resultErrors result)) ++ "/" ++ show (resultPositions result) ++ " normalized vectors comparable; " ++ show (matchingTokens result) ++ "/" ++ show (length (resultTokens result)) ++ " GPU tokens match C; ")
+            ++ show (resultDriverMs result)
+            ++ " ms"
+        )
     pure result
 
 -- | Consume prompt or GPU-selected tokens without consulting reference length.
@@ -706,17 +715,18 @@ caseJSON :: CaseResult -> JSON
 caseJSON result =
     let testCase = resultCase result
         errors = resultErrors result
+        compared value = if null (caseReferences testCase) then JNull else value
      in JObject
             [ ("name", JString (caseName testCase))
             , ("promptText", JString (casePromptText testCase))
             , ("promptTokens", int (length (casePrompt testCase)))
             , ("generatedTokens", JArray (map int (resultTokens result)))
-            , ("referenceTokens", JArray (map int (caseExpected testCase)))
-            , ("matchingTokens", int (matchingTokens result))
-            , ("firstDiscrepancy", maybe JNull id (firstDiscrepancy (length (casePrompt testCase)) 0 (resultTokens result) (caseExpected testCase)))
+            , ("referenceTokens", compared (JArray (map int (caseExpected testCase))))
+            , ("matchingTokens", compared (int (matchingTokens result)))
+            , ("firstDiscrepancy", compared (maybe JNull id (firstDiscrepancy (length (casePrompt testCase)) 0 (resultTokens result) (caseExpected testCase))))
             , ("positionsRun", int (resultPositions result))
             , ("normalizedVectorsChecked", int (errorVectors errors))
-            , ("maxNormedRelativeL2", number (errorRelative errors))
+            , ("maxNormedRelativeL2", compared (number (errorRelative errors)))
             , ("driverMs", number (resultDriverMs result))
             , ("executionMs", number (resultExecutionMs result))
             ]
@@ -728,10 +738,11 @@ networkJSON uploadMs planSetupMs driverMs results errors =
         prefillMs = sum (map resultPrefillMs results)
         caseMs = sum (map resultDriverMs results)
         executionMs = sum (map resultExecutionMs results)
+        compared value = if all (not . null . caseReferences . resultCase) results then value else JNull
      in JObject
             [ ("count", int (sum (map (length . resultTokens) results)))
-            , ("matchingTokens", int (sum (map matchingTokens results)))
-            , ("tokenReferenceMatched", JBool (all (\result -> resultTokens result == caseExpected (resultCase result)) results))
+            , ("matchingTokens", compared (int (sum (map matchingTokens results))))
+            , ("tokenReferenceMatched", compared (JBool (all (\result -> resultTokens result == caseExpected (resultCase result)) results)))
             , ("tokenIdsValid", JBool True)
             , ("accuracyRequired", JBool False)
             , ("tokenReferenceRequired", JBool False)
@@ -745,13 +756,13 @@ networkJSON uploadMs planSetupMs driverMs results errors =
             , ("prefillMs", number prefillMs)
             , ("generationMs", number (caseMs - prefillMs))
             , ("softmaxRoundtrips", int 0)
-            , ("maxHiddenAbsoluteError", number (errorHidden errors))
-            , ("maxNormedAbsoluteError", number (errorNormed errors))
-            , ("maxNormedRelativeL2", number (errorRelative errors))
+            , ("maxHiddenAbsoluteError", compared (number (errorHidden errors)))
+            , ("maxNormedAbsoluteError", compared (number (errorNormed errors)))
+            , ("maxNormedRelativeL2", compared (number (errorRelative errors)))
             , ("normalizedVectorsChecked", int (errorVectors errors))
             , ("normalizedVectorsWithinOnePercent", int (errorWithinBound errors))
-            , ("numericalBoundPassed", JBool (errorWithinBound errors == positions))
+            , ("numericalBoundPassed", compared (JBool (errorWithinBound errors == positions)))
             , ("strictDiagnosticFailures", int (errorStrict errors))
-            , ("maxLogitAbsoluteError", number (errorLogit errors))
+            , ("maxLogitAbsoluteError", compared (number (errorLogit errors)))
             , ("cases", JArray (map caseJSON results))
             ]

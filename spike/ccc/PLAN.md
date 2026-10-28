@@ -84,6 +84,16 @@ a GPU.
     and six prompts. Retain resident weights and cached GPU allocations.
     Do not extend this milestone to RMSNorm, BitLinear, or complete network
     scheduling. Do not claim arbitrary list or nested-array compilation.
+12. **Complete: combinator-derived numeric kernels.** Validate each entry
+    signature before MicroHs removes its types. Read the terms from `desugar`
+    and `compileOpt` as categorical scalar and array operations. Derive softmax,
+    RMSNorm, residual add, and the squared-ReLU gate through that path. Keep
+    the expression compiler as a comparison and as the BitLinear frontend.
+    Reject element-dependent nested reductions and unsupported primitives.
+    Check captured scalar results and independent reductions. Compute each
+    head row with a sequential binary64 accumulator. Run rows in parallel.
+    Compare the unchanged base and reviewed code on the same physical GPU
+    and browser. Keep token agreement and vector error as separate metrics.
 
 ## Acceptance
 
@@ -197,4 +207,21 @@ sequential binary64 interpretation of the source multiply and add, matching
 The showcase page omits Swedish. The reference suite still contains it.
 `web-result.json` from a check run reports `demo` and `reference` separately.
 The 2026-10-16 Apple figures above are the kernels from before this follow-up.
-A physical WebGPU rerun is still required before replacing those figures.
+The 2026-10-28 rerun below checks this follow-up on a physical GPU.
+
+
+## Physical WebGPU review, 2026-10-28
+
+The combinator path passes its scalar/array comparisons, signature checks,
+lexical-capture checks, and all 23 browser fixtures on Apple M4 / Chrome
+156.0.8078.49. The unchanged base matches 47/52 C tokens; the reviewed code
+matches 52/52. Maximum normalized relative L2 changes from 9.7894% to 8.8535%.
+Vectors within 1% change from 6/205 to 138/209. Numerical parity still fails.
+
+The initial PR head schedule takes 161.84 s for the checked network. One row
+per invocation preserves its ordered binary64 arithmetic and reduces that
+interval to 74.86 s. The unchanged base takes 65.50 s. Final token execution
+takes 42.40 s versus 34.78 s for the base. These are single runs with shared
+reference files and no concurrent GPU checks. Model upload is separate.
+No new GPU buffers, bind groups, or plans are created during execution.
+See the README for the head microbenchmark, numerical bounds, and commands.

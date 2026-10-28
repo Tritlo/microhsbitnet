@@ -2,18 +2,16 @@
 
 The spike demonstrates how to write numerical kernels in MicroHs and run them
 on a GPU. It compiles selected functions from `Programs.hs`, `LayerPrograms.hs`, and `ArrayPrograms.hs`
-through the upstream MicroHs parser and type checker. It translates the checked scalar expressions
-to typed categorical operations. It derives softmax, RMSNorm, residual add, and
+through the upstream MicroHs parser and type checker. It translates supported
+MicroHs combinator terms to typed categorical operations. It derives softmax, RMSNorm, residual add, and
 the squared-ReLU gate from source maps and reductions. It generates Metal and WGSL
 kernels from those graphs. The model weights remain packed input data.
 
 The showcase page (`web/demo.html`) streams five prompts and does not include
 the Swedish prompt. Swedish remains in the reference suite. `check-float.py`
-compares the software binary64 and `exp32` shader with libm; that check does
-not need the model. A full WebGPU rerun of the 2B model was not possible on the
-machine that prepared this page, which has no physical GPU. The Apple M4
-figures later in this file are the previous kernels, not a measurement of the
-`exp32` and binary64 head changes.
+checks software binary64 exactly and compares `exp32` with host libm within
+1 ULP. That check does not need the model. The 2026-10-28 physical Apple M4
+run checks the current kernels. Older measurements retain their dates below.
 
 Numeric kernels are rebuilt from the combinator term MicroHs emits.
 [COMBINATORS.md](COMBINATORS.md) is the map from `S'`, `B`, `C`, and the rest
@@ -38,6 +36,70 @@ the former 1% error target is not met.
 - [Source map and modification workflow](#source-map-and-modification-workflow)
 - [Troubleshooting](#troubleshooting)
 
+## Physical WebGPU review, 2026-10-28
+
+The unchanged base (`1272453`), PRs #2 and #3 (`75d5f43`), and the reviewed
+code ran on Apple M4 with Chrome `156.0.8078.49` and a physical Metal adapter.
+All runs used the same model, six prompts, and independent C-reference files.
+Each run consumed 209 positions. No other GPU check ran during these intervals.
+
+| Metric | Unchanged base | PR arithmetic, initial head schedule | Reviewed code |
+| --- | ---: | ---: | ---: |
+| Matched C tokens | 47/52 | 52/52 | 52/52 |
+| Normalized vectors within 1% | 6/205 | 138/209 | 138/209 |
+| Maximum normalized relative L2 | 9.7894% | 8.8535% | 8.8535% |
+| Checked network, including plan setup | 65.50 s | 161.84 s | 74.86 s |
+| Token execution, including prefill | 34.78 s | 129.41 s | 42.40 s |
+
+These are single observations. The checked network includes diagnostics and
+application control. Weight loading is separate: 6.65 s in the final run.
+The final application interval, including fixtures and loading, is 91.95 s.
+All 23 browser fixtures pass. The final schedule preserves all 52 tokens and
+all 958 diagnostic records from the initial PR-arithmetic run. The 1% vector
+bound still fails. The demo subset in this check matches 42/42 reference tokens.
+It is a subset of the ten-token check, not a timed 24-token showcase run.
+
+The initial software binary64 head computed one row per workgroup. Only one
+lane accumulated its terms. The reviewed head assigns one row per invocation.
+Each row retains ascending column order, binary64 multiplication and addition,
+and the final binary32 conversion. A real `16384 x 2560` chunk produced
+byte-identical logits. Two warmups and nine timed dispatch/readback samples
+gave medians of 227.6 ms before the change and 14.7 ms after it. Compilation
+and upload are outside those samples. The full-model rerun verifies the new
+row dispatch count and the unchanged argmax behavior.
+
+Weights upload once. Model buffers retain 1,179,443,200 bytes. Execution adds
+no GPU buffers, bind groups, or plans. Bulk model-weight copies into WASM are
+zero. The check rejects software adapters.
+
+The combinator checks reject mismatched entry types and element-dependent
+nested reductions. They accept independent reductions and captured-only map
+and zip bodies. The binary64 emitter rejects unsupported operations instead
+of applying integer-vector operators to encoded floats.
+
+`check-float.py` passes 32,768 exact binary64 sum/product comparisons on Metal,
+including signed zeros. Its `exp32` comparison has 107 exact differences from
+macOS libm, all 1 ULP, with none larger. This is an explicit host-library bound
+for the checked corpus. It is not a proof for all binary32 inputs.
+
+Reproduce from the repository root, with the pinned compiler, Emscripten, model,
+and Node dependencies prepared:
+
+```sh
+make -C spike/ccc web-check
+make -C spike/ccc numeric-check
+```
+
+The check writes `bin/ccc-spike/web-result.json`. The showcase writes
+`bin/ccc-spike/demo-result.json`; it does not replace the reference artifact.
+Without C references, showcase comparison fields are `null`. The direct
+`web/demo.html` URL selects showcase mode. UTF-8 decoding retains partial
+characters between tokens. The tokenizer must load before generation starts.
+The strict TypeScript build and focused display checks pass. The Python check
+passes strict Pyright. Haskell changes pass Fourmolu. This project has no Cabal
+manifest to format. Pages has a root entry point and stays behind its manual
+deployment gate. No deployment was performed.
+
 ## Compilation process
 
 ### 1. Keep the numerical source and control program separate
@@ -58,9 +120,9 @@ Build time: GHC runs the compiler driver
         │ upstream MicroHs parser and type checker
         ▼
   checked expressions with concrete numeric dictionaries
-        │ Compiler.hs
+        │ MicroHs desugar + compileOpt; Combinators.hs
         ▼
-  Cat input output + source-derived softmax graph + other explicit array plans
+  Cat input output + source-derived array graphs + explicit tensor plans
         │ scalar interpreters + array execution templates
         ├── Metal kernels for the native checks
         ├── WGSL kernels for WebGPU
@@ -91,7 +153,9 @@ categorical compiler does not run inside WASM.
 ### 2. Compile checked expressions to typed categorical operations
 
 `Frontend.hs` uses the upstream parser and type checker before desugaring.
-`Compiler.hs` recognizes exact primitive names and their concrete dictionaries.
+`Combinators.hs` checks each source signature before desugaring and bracket
+abstraction. It recognizes exact primitive names and their concrete dictionaries.
+`Compiler.hs` supplies the expression path for BitLinear and the comparison checks.
 `CCC.hs` represents composition, products, currying, application, and supported
 numeric operations as `Cat input output`.
 CCC means cartesian closed category. The structural operations represent typed
@@ -123,18 +187,18 @@ typed functional code can have different categorical interpretations. This
 experiment uses its own small frontend pass, not the GHC `concat` plugin.
 It does not claim a formal semantics proof for arbitrary Haskell or GPU floats.
 
-### 3. Lower before the combinator representation
+### 3. Read MicroHs combinators as categorical operations
 
-The compiler reads typed source before MicroHs converts it to combinators.
-It does not recover kernels from the final SKI or combinator graph. Types,
-primitive identities, and argument structure are available at this earlier
-point. There is no need for a linear-SKI intermediate representation here.
-This is a choice of compiler boundary, not a claim that combinators cannot
-represent the program.
+The kernel path reads the terms that MicroHs `desugar` and `compileOpt` emit.
+For example, `S' f g h` becomes `f` composed with the pair of `g` and `h`.
+Concrete numeric dictionaries select the supported primitive operations.
+The resulting graphs contain first-order scalar operations and array intrinsics.
+See [COMBINATORS.md](COMBINATORS.md) for the basis and its limits.
 
-Softmax array operations are derived from the checked source. Other tensor
-operations still use explicit array plans. This is not an Accelerate backend
-or an automatic optimizer for arbitrary list folds.
+The expression compiler remains a separate comparison path. BitLinear still
+uses that path for quantization, trit contribution, and rescaling. Its packed
+row schedule and the attention tensor schedule remain explicit templates.
+The compiler does not translate arbitrary list folds or general recursion.
 
 ### 4. Compile a complete array function
 
@@ -676,7 +740,7 @@ these operations. The code interpreter eliminates categorical closures during
 code generation. The selected source fragment uses products and scalar operations.
 The checks also exercise categorical currying and application directly.
 
-The source fragment accepts monomorphic `Float` arithmetic, absolute values,
+The expression path in `Compiler.hs` accepts monomorphic `Float` arithmetic, absolute values,
 minimum and maximum, square root, exponential, trigonometry, and powers. It
 accepts bounded rounding, `Int32` conversion, addition, negation, equality,
 integer constants, and scalar conditionals. It accepts nonrecursive variable
@@ -686,10 +750,12 @@ source `where` bindings, imported helper bodies, effects, and runtime function v
 validate the exact primitive dictionaries after source normalization.
 
 `FloatWGSL.hs` provides compiler helpers for binary32 multiplication, division,
-and square root used by the strict kernels. The head uses a separate relaxed
-floating-point interpretation. Softmax uses native WGSL `exp`, without a custom
-exponential approximation or lookup table. GPU floating-point evaluation is not
-a promise to reproduce a CPU library's rounding; see the
+and square root used by the strict kernels. Softmax uses the software binary64
+polynomial and table in `float_soft.wgsl`. The head uses binary64 addition and
+multiplication with columns in ascending order. Separate invocations compute
+independent vocabulary rows. Unsupported binary64 operations are rejected.
+GPU floating-point evaluation is not a promise to reproduce a CPU library's
+rounding; see the
 [WGSL floating-point rules](https://www.w3.org/TR/WGSL/#floating-point-evaluation).
 Small rounding changes can cross activation quantization thresholds. The
 full-model comparisons report the resulting differences rather than hiding

@@ -41,11 +41,12 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends build-essential clang python3
           make -C vendor/microhs bin/gmhs bin/cpphs mhs.conf
-          cd spike/ccc/web && npm ci
+          npm --prefix spike/ccc/web ci
           make -C spike/ccc web-demo
           mkdir -p "$RUNNER_TEMP/pages/web"
           cp bin/ccc-spike/bitlinear.wgsl bin/ccc-spike/layer.wgsl bin/ccc-spike/head.wgsl bin/ccc-spike/checks.wgsl bin/ccc-spike/rotary.bin "$RUNNER_TEMP/pages/"
           cp -a bin/ccc-spike/web/. "$RUNNER_TEMP/pages/web/"
+          printf '%s\n' '<!doctype html><meta charset="utf-8"><meta http-equiv="refresh" content="0;url=web/demo.html"><a href="web/demo.html">Open the demo</a>' > "$RUNNER_TEMP/pages/index.html"
       - uses: actions/upload-pages-artifact@v3
         with:
           path: ${{ runner.temp }}/pages
