@@ -11,7 +11,7 @@ GHCFLAGS += -package ghc-prim -package containers -package deepseq -package dire
 GHCFLAGS += -package text -package bytestring -package filepath -package array
 GHCFLAGS += -Wno-x-partial
 
-.PHONY: all check web web-check web-demo numeric-check fixtures network-fixtures
+.PHONY: all check web web-check web-demo numeric-check fixtures network-fixtures graphics-data
 
 all: $(BUILD)/ccc-compile $(BUILD)/source $(BUILD)/prepare $(BUILD)/metal-runner
 
@@ -24,6 +24,13 @@ web-demo: $(BUILD)/ccc-compile $(BUILD)/source $(BUILD)/web/microhs.mjs
 
 numeric-check:
 	uv run --script check-float.py
+
+graphics-data: $(BUILD)/graphics-data
+	cd $(ROOT) && bin/ccc-spike/graphics-data bin/ccc-spike/graphics-data.json
+
+$(BUILD)/graphics-data: Graphics.hs Frontend.hs Combinators.hs Compiler.hs CCC.hs FloatWGSL.hs float_soft.wgsl ArrayCompiler.hs ArrayGraph.hs ArrayPrograms.hs SourceArray.hs Programs.hs LayerPrograms.hs WebJSON.hs
+	@mkdir -p $(BUILD)/graphics-ghc
+	$(GHC) $(GHCFLAGS) -outputdir $(BUILD)/graphics-ghc Graphics.hs -o $@
 
 fixtures: $(BUILD)/ccc-compile $(BUILD)/source $(BUILD)/prepare $(BUILD)/bitlinear-reference $(BUILD)/prepare-layer
 	@mkdir -p $(BUILD)/cases

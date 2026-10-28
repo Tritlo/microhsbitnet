@@ -297,6 +297,35 @@ Node or Emscripten. The frontend negative checks run during shader generation.
 The execution environment must permit GPU access. The runner fails if it cannot
 open a Metal device. It does not substitute a CPU implementation.
 
+### Export source and combinator graphics
+
+From the repository root, export eight functions and a complete scalar shader:
+
+```sh
+make -C spike/ccc graphics-data
+```
+
+`bin/ccc-spike/graphics-data.json` contains exact source excerpts, emitted
+MicroHs terms, categorical or array graphs, and WGSL. The scalar shader comes
+from the direct-combinator graph. The trit contribution uses the expression
+compiler. Numeric and array primitives remain named leaves in the pictures.
+
+Use the renderer in the adjacent `Combinate-ccc-demo` checkout:
+
+```sh
+graphics_json="$PWD/bin/ccc-spike/graphics-data.json"
+graphics_output="$PWD/bin/ccc-spike/graphics"
+(
+  cd ../Combinate-ccc-demo
+  npm ci
+  node --import tsx scripts/ccc-graphics.ts "$graphics_json" "$graphics_output"
+)
+```
+
+The renderer reads the local model for its counts. It writes SVGs, PNGs,
+source data, and `bin/ccc-spike/graphics/index.html`. It uses the installed
+Chrome for PNG capture. Set `CHROME` if its path differs from the macOS default.
+
 ### Set up Emscripten and browser dependencies
 
 Install and activate Emscripten 6.0.12 with the
