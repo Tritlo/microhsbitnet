@@ -1,5 +1,5 @@
-// Software binary64 and expf. The host program spike/ccc/numeric-check.c is the
-// same rounding, and check-float.py compares this shader with libm.
+// Software binary64 and expf. check-float.py checks binary64 results exactly
+// and requires exp32 results to match host libm within 1 ULP.
 
 fn clz32(value: u32) -> u32 {
   if (value == 0u) { return 32u; }
@@ -335,6 +335,7 @@ fn add_f64(a: vec2<u32>, b: vec2<u32>) -> vec2<u32> {
   }
   var ap = unpack64(a);
   var bp = unpack64(b);
+  if (!u64_nz(ap.sig) && !u64_nz(bp.sig)) { return vec2<u32>(0u, (a.y & b.y) & 0x80000000u); }
   if (!u64_nz(ap.sig)) { return b; }
   if (!u64_nz(bp.sig)) { return a; }
   if (ap.unbiased < bp.unbiased || (ap.unbiased == bp.unbiased && u64_lt(ap.sig, bp.sig))) {
@@ -434,7 +435,7 @@ fn exp32(value: f32) -> f32 {
   if (abstop >= 0x42bu) { // top12(88) roughly; exact check below uses the float
     if (bits == 0xff800000u) { return 0.0; }
     if (abstop >= 0x7f8u) { return value + value; }
-    if (value > 88.7228394) { return bitcast<f32>(0x7f800000u); }
+    if (value > 88.7228394) { return bitcast<f32>(0x7f800000u | (bits & 0x80000000u)); }
     if (value < -103.972084) { return 0.0; }
   }
   let poly0 = vec2<u32>(0x4b912394u, 0x3ebc6af8u);

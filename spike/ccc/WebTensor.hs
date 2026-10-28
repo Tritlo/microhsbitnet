@@ -513,7 +513,7 @@ operation engine name (Tensor first) (Tensor second) (Tensor third) parameter sc
                 (Embedding chunks rows, Just (hidden, normalized)) | count == 2560 && rows == 128256 && length chunks == 8 && parameter == 0 && normalized == input && not (frameHead frame) -> do
                     logits <- allocate engine (128256 * 4) 132 0
                     chosen <- allocate engine 8 132 0
-                    forM_ chunks $ \(buffer, start, chunkRows) -> dispatchHead engine "head" [buffer, input, logits, chosen] [2560, chunkRows, 0, start] chunkRows
+                    forM_ chunks $ \(buffer, start, chunkRows) -> dispatchHead engine "head" [buffer, input, logits, chosen] [2560, chunkRows, 0, start] ((chunkRows + 127) `div` 128)
                     dispatchHead engine "argmax" [stateDummy state, stateDummy state, logits, chosen] [2560, 128256, 0, 0] 1
                     alterFrame engine (\current -> current{frameHead = True, frameValues = (chosen, Chosen chosen hidden normalized logits) : frameValues current})
                     pure (Tensor chosen)

@@ -2,7 +2,7 @@ module FloatWGSL (wgslPrelude, softFloat) where
 
 import System.IO.Unsafe (unsafePerformIO)
 
--- | Software binary64 and expf, checked against libm by check-float.py.
+-- | Software binary64 and an exponential checked by check-float.py.
 softFloat :: String
 {-# NOINLINE softFloat #-}
 softFloat = unsafePerformIO (readFile "spike/ccc/float_soft.wgsl")

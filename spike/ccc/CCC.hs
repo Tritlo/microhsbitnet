@@ -110,10 +110,21 @@ emitWGSLRelaxed = emitCode WGSLRelaxed
 
 -- | Interpret Float addition and multiplication as sequential binary64 operations.
 emitBinary64 :: Cat input output -> Code input -> Either String (Code output)
-emitBinary64 = emitCode Binary64
+emitBinary64 graph input = case graph of
+    Id -> Right input
+    Compose after before -> emitBinary64 before input >>= emitBinary64 after
+    First -> case input of PairCode left _ -> Right left
+    Second -> case input of PairCode _ right -> Right right
+    Pair left right -> PairCode <$> emitBinary64 left input <*> emitBinary64 right input
+    Terminal -> Right UnitCode
+    AddFloat -> case input of
+        PairCode (FloatCode left) (FloatCode right) -> Right (FloatCode ("add_f64(" ++ left ++ ", " ++ right ++ ")"))
+    MulFloat -> case input of
+        PairCode (FloatCode left) (FloatCode right) -> Right (FloatCode ("mul_f64(" ++ left ++ ", " ++ right ++ ")"))
+    _ -> Left ("Unsupported binary64 operation: " ++ showCat graph)
 
 -- | Select the syntax for target-specific scalar operations.
-data Target = Metal | NativeC | WGSL | WGSLRelaxed | Binary64
+data Target = Metal | NativeC | WGSL | WGSLRelaxed
 
 -- | Interpret the shared graph with target integer and conditional syntax.
 emitCode :: Target -> Cat input output -> Code input -> Either String (Code output)
@@ -135,11 +146,11 @@ emitCode target graph input = case graph of
          in Right (IntCode (case target of NativeC -> "((int32_t)" ++ literal ++ ")"; _ -> cast ++ "(" ++ literal ++ ")"))
     AddFloat -> case input of
         PairCode (FloatCode left) (FloatCode right) ->
-            Right (FloatCode (case target of Binary64 -> "add_f64(" ++ left ++ ", " ++ right ++ ")"; _ -> binary "+" left right))
+            Right (FloatCode (binary "+" left right))
     SubFloat -> case input of PairCode (FloatCode left) (FloatCode right) -> Right (FloatCode (binary "-" left right))
     MulFloat -> case input of
         PairCode (FloatCode left) (FloatCode right) ->
-            Right (FloatCode (case target of WGSL -> "multiply32(" ++ left ++ ", " ++ right ++ ")"; Binary64 -> "mul_f64(" ++ left ++ ", " ++ right ++ ")"; _ -> binary "*" left right))
+            Right (FloatCode (case target of WGSL -> "multiply32(" ++ left ++ ", " ++ right ++ ")"; _ -> binary "*" left right))
     DivFloat -> case input of
         PairCode (FloatCode left) (FloatCode right) ->
             Right (FloatCode (case target of WGSL -> "divide32(" ++ left ++ ", " ++ right ++ ")"; _ -> binary "/" left right))
