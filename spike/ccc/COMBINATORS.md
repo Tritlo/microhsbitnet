@@ -63,6 +63,13 @@ concrete instances) are the same names the expression compiler already
 accepts. `fromInteger` of an integer literal is a constant. Anything else
 with that name is rejected.
 
+The translator checks the source signature before type erasure. A scalar
+kernel must use the requested scalar types and arity. An array kernel must
+take the requested number of `Vector Float` inputs and return `Vector Float`.
+Each map or zip binder has a distinct identity. An inner reduction that
+depends on an outer element is rejected. Independent reductions can be
+captured, including element functions that return only a captured scalar.
+
 ## What the combinator term lowers
 
 Checked by `checkCombinators` against the expression compiler, same inputs:
@@ -95,6 +102,7 @@ translating without a new reading:
 - `Y`, and any variable that is not a primitive method, a concrete dictionary,
   or one of the five array intrinsics.
 - A map or `zipWith` that closes over more than two scalars.
+- A nested reduction that depends on an outer map or zip element.
 
 So the claim is literal for the scalar core and for the map/fold programs
 above. It is not yet literal for the integer quantizer inside BitLinear.

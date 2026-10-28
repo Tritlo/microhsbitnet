@@ -1,12 +1,13 @@
 {-# LANGUAGE GADTs #-}
 
--- | Read the combinator term MicroHs actually emits and rebuild the CCC graph
--- the WGSL backend already consumes.
---
--- B is composition, C is flip, and S' f g h = f . <g, h>. S f g x = f x (g x)
--- is the same duplication when f is a known primitive, so the kernel stays
--- first-order. S needs a real exponential, apply . <f, g>, only when the
--- operator is an unknown runtime function. Numeric kernels here do not need one.
+{- | Read the combinator term MicroHs actually emits and rebuild the CCC graph
+the WGSL backend already consumes.
+
+B is composition, C is flip, and S' f g h = f . <g, h>. S f g x = f x (g x)
+is the same duplication when f is a known primitive, so the kernel stays
+first-order. S needs a real exponential, apply . <f, g>, only when the
+operator is an unknown runtime function. Numeric kernels here do not need one.
+-}
 module Combinators (
     translateFloat,
     translateBool,
@@ -29,16 +30,17 @@ import Control.Monad.State.Strict (StateT, get, modify, runStateT)
 import Control.Monad.Trans.Class (lift)
 import Data.Int (Int32)
 import Data.List (nub)
+import Frontend (checkedModule)
 import MicroHs.Abstract (compileOpt)
 import MicroHs.Desugar (desugar)
 import MicroHs.Exp (Exp (..))
-import MicroHs.Expr (EDef, Lit (..))
+import MicroHs.Expr (EDef (..), EType, Expr (EApp, EVar), Lit (..), eqEType, getArrows, showEType)
 import MicroHs.Flags (defaultFlags)
-import MicroHs.Ident (showIdent, unQualIdent)
+import MicroHs.Ident (mkIdent, showIdent, unQualIdent)
 import MicroHs.TypeCheck (TModule, tBindingsOf)
 import qualified Programs
 
-data Leaf = LElem | LArg Int | LLeft | LRight | LCap Int
+data Leaf = LElem | LArg Int | LLeft | LRight | LCap Int | LBound Int
     deriving (Eq, Show)
 
 data Prim
@@ -83,17 +85,28 @@ type M = StateT Build (Either String)
 
 -- | Curried Float function of the given arity, as a first-order arrow.
 translateFloat :: Int -> TModule [EDef] -> String -> Either String U
-translateFloat arity checked name = evalNamed checked name >>= finishFloat arity
+translateFloat arity checked name = do
+    unless (arity > 0) (Left "A scalar function needs at least one argument")
+    validateSignature checked name (replicate (arity + 1) floatType)
+    evalNamed checked name >>= finishFloat arity
 
+-- | Translate a checked comparison of two Float arguments.
 translateBool :: TModule [EDef] -> String -> Either String U
-translateBool checked name = evalNamed checked name >>= finishFloat 2
+translateBool checked name = do
+    validateSignature checked name [floatType, floatType, boolType]
+    evalNamed checked name >>= finishFloat 2
 
+-- | Translate a checked binary Int32 function.
 translateInt :: TModule [EDef] -> String -> Either String U
-translateInt checked name = evalNamed checked name >>= finishFloat 2
+translateInt checked name = do
+    validateSignature checked name (replicate 3 intType)
+    evalNamed checked name >>= finishFloat 2
 
 -- | Function of @inputs@ vector arguments, as the existing array graph.
 translateArray :: Int -> TModule [EDef] -> String -> Either String Program
 translateArray inputs checked name = do
+    unless (inputs > 0) (Left "An array function needs at least one argument")
+    validateSignature checked name (replicate (inputs + 1) vectorType)
     value <- evalNamed checked name
     (result, build) <- runStateT (applyAll value (map Vec [0 .. inputs - 1])) (Build inputs [])
     case result of
@@ -155,7 +168,10 @@ checkCombinators programs layer arrays = do
     existing <- either fail pure (compileScalar programs "scalar")
     unless (showCat translated == showCat existing) $
         fail ("scalar CCC graph changed:\n translated " ++ showCat translated ++ "\n existing    " ++ showCat existing)
-    mapM_ (reject programs) ["quantize", "rescale", "contribution"]
+    reject programs "quantize" [floatType, floatType, intType]
+    reject programs "rescale" [intType, floatType, floatType, floatType]
+    reject programs "contribution" [intType, intType, intType]
+    checkBoundaries layer programs
     putStrLn "Combinator to CCC translation matches the existing scalar and array kernels"
   where
     sameA module_ name inputs check = do
@@ -217,10 +233,56 @@ sameI programs = do
     unless (all (\input -> runCat graph input == runCat reference input) inputs) $
         fail "combine combinator kernel differs from the expression compiler"
 
-reject :: TModule [EDef] -> String -> IO ()
-reject checked name = case translateFloat 2 checked name of
-    Left _ -> pure ()
-    Right _ -> fail (name ++ " translated, but it still mixes rounding, fromIntegral, or a Scott boolean")
+-- | Check unsupported expressions after their signatures have been validated.
+reject :: TModule [EDef] -> String -> [EType] -> IO ()
+reject checked name expected = do
+    either fail pure (validateSignature checked name expected)
+    rejects name (evalNamed checked name >>= finishFloat (length expected - 1))
+
+-- | Check lexical array scope, captured results, and public entry signatures.
+checkBoundaries :: TModule [EDef] -> TModule [EDef] -> IO ()
+checkBoundaries layer programs = do
+    checked <- checkedModule "spike/ccc/Unsupported.hs"
+    mapM_ (\name -> rejects name (translateArray 1 checked name)) ["dependentArray", "dependentArithmetic"]
+    rejects "Int32 identity as Float" (kernelFloat1 checked "intIdentity")
+    rejects "Int32 pair as Float" (kernelFloat2 checked "intFirst")
+    rejects "Float result as Bool" (translateBool layer "plus")
+    rejects "Float arguments as Int32" (translateInt programs "peak")
+    rejects "Int32 vector as Float vector" (translateArray 1 checked "intVectorIdentity")
+    rejects "scalar argument as vector" (translateArray 2 checked "ignoredScalar")
+    mapM_
+        ( \(name, inputs, expected) -> do
+            graph <- either fail pure (translateArray (length inputs) checked name)
+            actual <- either fail pure (runVectors graph inputs)
+            unless (actual == expected) (fail (name ++ " combinator graph differs: " ++ show actual))
+        )
+        [ ("capturedMap", [[1, 2]], [3, 3])
+        , ("capturedZip", [[1, 2], [8, 9]], [3, 3])
+        , ("independentNested", [[1, 2]], [6, 7])
+        ]
+
+-- | Fail when an unsupported translation succeeds.
+rejects :: String -> Either String value -> IO ()
+rejects _ (Left _) = pure ()
+rejects name (Right _) = fail (name ++ " was accepted")
+
+-- | Match a monomorphic source signature before types are removed.
+validateSignature :: TModule [EDef] -> String -> [EType] -> Either String ()
+validateSignature checked name expected = do
+    signature <- case [ty | Sign names ty <- tBindingsOf checked, mkIdent name `elem` names] of
+        [ty] -> Right ty
+        _ -> Left ("Missing monomorphic signature: " ++ name)
+    let (arguments, result) = getArrows signature
+        actual = arguments ++ [result]
+    unless (length actual == length expected && and (zipWith eqEType actual expected)) $
+        Left ("Unsupported signature for " ++ name ++ ": " ++ showEType signature)
+
+-- | Use the exact source types accepted by the scalar and vector backends.
+floatType, intType, boolType, vectorType :: EType
+floatType = EVar (mkIdent "Primitives.Float")
+intType = EVar (mkIdent "Data.Int.Int32.Int32")
+boolType = EVar (mkIdent "Data.Bool_Type.Bool")
+vectorType = EApp (EVar (mkIdent "SourceArray.Vector")) floatType
 
 optimized :: TModule [EDef] -> String -> Either String Exp
 optimized checked name =
@@ -311,9 +373,12 @@ method "Data.Ord.max" = Just (withDict [(floatOrd, binary PMax)])
 method "Data.Ord.min" = Just (withDict [(floatOrd, binary PMin)])
 method "Data.Ord.>" = Just (withDict [(floatOrd, binary PGt)])
 method "Data.Num.fromInteger" = Just fromIntegerMethod
-method "Data.Integer_Type._intToInteger" = Just (Fun $ \value -> case value of
-    Bits integer -> pure (Bits integer)
-    _ -> oops "_intToInteger expects an integer literal")
+method "Data.Integer_Type._intToInteger" =
+    Just
+        ( Fun $ \value -> case value of
+            Bits integer -> pure (Bits integer)
+            _ -> oops "_intToInteger expects an integer literal"
+        )
 method _ = Nothing
 
 fromIntegerMethod :: Val
@@ -351,30 +416,36 @@ unary prim = Fun $ \value -> do
 mapIntrinsic :: Val
 mapIntrinsic = Fun $ \function -> pure $ Fun $ \vector -> do
     source <- expectVec vector
-    produced <- apply function (Arrow (ULeaf LElem))
-    body <- case produced of
-        Arrow arrow -> pure arrow
-        _ -> oops "map expected an element function"
-    target <- emitMap source body
+    element <- fresh
+    produced <- apply function (Arrow (ULeaf (LBound element)))
+    body <- asArrow produced
+    target <- emitMap source (bindLeaves [(element, LElem)] body)
     pure (Vec target)
 
 zipIntrinsic :: Val
 zipIntrinsic = Fun $ \function -> pure $ Fun $ \left -> pure $ Fun $ \right -> do
     leftId <- expectVec left
     rightId <- expectVec right
-    applied <- apply function (Arrow (ULeaf LLeft))
-    produced <- apply applied (Arrow (ULeaf LRight))
-    body <- case produced of
-        Arrow arrow -> pure arrow
-        _ -> oops "zipWith expected an element function"
-    target <- emitZip leftId rightId body
+    leftElement <- fresh
+    rightElement <- fresh
+    applied <- apply function (Arrow (ULeaf (LBound leftElement)))
+    produced <- apply applied (Arrow (ULeaf (LBound rightElement)))
+    body <- asArrow produced
+    target <- emitZip leftId rightId (bindLeaves [(leftElement, LLeft), (rightElement, LRight)] body)
     pure (Vec target)
+
+-- | Replace only the current intrinsic's bound scalar inputs.
+bindLeaves :: [(Int, Leaf)] -> U -> U
+bindLeaves bindings (ULeaf (LBound identifier)) = ULeaf (maybe (LBound identifier) id (lookup identifier bindings))
+bindLeaves bindings (UCompose left right) = UCompose (bindLeaves bindings left) (bindLeaves bindings right)
+bindLeaves bindings (UPair left right) = UPair (bindLeaves bindings left) (bindLeaves bindings right)
+bindLeaves _ arrow = arrow
 
 reduce :: (Ref Float -> Ref [Float] -> Step) -> Val
 reduce step = Fun $ \vector -> do
     source <- expectVec vector
     identifier <- fresh
-    modify (\build -> build {steps = step (ScalarRef identifier) (VectorRef source) : steps build})
+    modify (\build -> build{steps = step (ScalarRef identifier) (VectorRef source) : steps build})
     pure (Frozen identifier)
 
 countIntrinsic :: Val
@@ -390,7 +461,7 @@ emitMap source body = do
             (\graph -> Map (VectorRef target) graph (Capture (ScalarRef first) (Capture (ScalarRef second) NoCaptures)) (VectorRef source))
                 <$> liftE (reify (projElem2 first second) body)
         _ -> oops "A map closes over more than two scalars"
-    modify (\build -> build {steps = step : steps build})
+    modify (\build -> build{steps = step : steps build})
     pure target
 
 emitZip :: Int -> Int -> U -> M Int
@@ -405,7 +476,7 @@ emitZip left right body = do
             (\graph -> Map2 (VectorRef target) graph (Capture (ScalarRef first) (Capture (ScalarRef second) NoCaptures)) (VectorRef left) (VectorRef right))
                 <$> liftE (reify (projZip2 first second) body)
         _ -> oops "A zipWith closes over more than two scalars"
-    modify (\build -> build {steps = step : steps build})
+    modify (\build -> build{steps = step : steps build})
     pure target
 
 collect :: U -> [Int]
@@ -417,7 +488,7 @@ collect _ = []
 fresh :: M Int
 fresh = do
     build <- get
-    modify (\current -> current {nextId = nextId current + 1})
+    modify (\current -> current{nextId = nextId current + 1})
     pure (nextId build)
 
 expectVec :: Val -> M Int
