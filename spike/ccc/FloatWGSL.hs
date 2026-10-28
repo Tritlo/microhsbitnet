@@ -1,9 +1,17 @@
-module FloatWGSL (wgslPrelude) where
+module FloatWGSL (wgslPrelude, softFloat) where
+
+import System.IO.Unsafe (unsafePerformIO)
+
+-- | Software binary64 and expf, checked against libm by check-float.py.
+softFloat :: String
+{-# NOINLINE softFloat #-}
+softFloat = unsafePerformIO (readFile "spike/ccc/float_soft.wgsl")
 
 -- | Provide binary32 multiplication, division, and square root with integer significands.
 wgslPrelude :: String
 wgslPrelude =
-    unlines
+    softFloat
+        ++ unlines
         [ "fn multiply32(left: f32, right: f32) -> f32 {"
         , "  let leftBits = bitcast<u32>(left);"
         , "  let rightBits = bitcast<u32>(right);"

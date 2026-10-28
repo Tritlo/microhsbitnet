@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>BitNet in the browser, Haskell all the way down</title>
+  <style>
+    :root { color-scheme: dark; --ink: #e7e2d6; --muted: #9a937f; --line: #3a3428; --accent: #e1a94a; }
+    body { margin: 0; font: 16px/1.5 "Iowan Old Style", Palatino, Georgia, serif; background: #16130f; color: var(--ink); }
+    main { max-width: 44rem; margin: 0 auto; padding: 2.5rem 1.25rem 4rem; }
+    h1 { font-size: 1.8rem; line-height: 1.2; font-weight: 600; }
+    p { margin: 0.8rem 0; }
+    .muted { color: var(--muted); }
+    a { color: var(--accent); }
+    #status { min-height: 1.5rem; }
+    .track { height: 0.45rem; background: #2a261f; border-radius: 99px; overflow: hidden; margin: 0.8rem 0 1.2rem; }
+    #bar { height: 100%; width: 0; background: var(--accent); }
+    #transcript { white-space: pre-wrap; font: 1.05rem/1.45 ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace; background: #211c16; border: 1px solid var(--line); border-radius: 0.6rem; padding: 1rem; min-height: 8rem; }
+    details { margin-top: 1.5rem; color: var(--muted); }
+    pre { white-space: pre-wrap; font: 0.8rem/1.4 ui-monospace, Menlo, Consolas, monospace; }
+  </style>
+  <main>
+    <h1>A 2B BitNet, in a browser tab, in Haskell.</h1>
+    <p>The model math is Haskell. A small compiler turns that Haskell into a GPU kernel. The loop that feeds the kernel is Haskell too, compiled by MicroHs to C and then to WebAssembly. The page only supplies WebGPU.</p>
+    <p class="muted">Weights stream from Hugging Face (about 1.18 GB). The first tokens arrive after the upload. This page does not run without WebGPU, and it does not pretend a missing GPU is a pass.</p>
+    <p id="status">Starting…</p>
+    <div id="progress" class="muted">Waiting for the GPU</div>
+    <div class="track" aria-hidden="true"><div id="bar"></div></div>
+    <div id="transcript" aria-live="polite"></div>
+    <details>
+      <summary>Driver log</summary>
+      <pre id="results"></pre>
+    </details>
+  </main>
+  <script type="module" src="bridge.js"></script>
+</html>

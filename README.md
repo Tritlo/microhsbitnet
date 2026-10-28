@@ -6,6 +6,64 @@ Augustsson's combinator-graph Haskell — with no Python at runtime. Tokenizer, 
 transformer, KV-cached generation, detokenizer: all MicroHaskell, accelerated by a small,
 focused C core.
 
+## For visitors
+
+A 2B BitNet runs on the GPU in a browser tab, and the numerical program is Haskell.
+MicroHs source is checked, lowered through a small cartesian closed category
+(CCC) compiler to WGSL, and executed with WebGPU. The token loop is the same
+MicroHs program compiled to C and then WebAssembly. The browser page only
+holds WebGPU buffers and shows the text.
+
+```text
+Haskell source  →  CCC / array graph  →  WGSL kernel
+Haskell loop    →  MicroHs  →  C  →  WASM  →  WebGPU
+```
+
+Locally, from this branch (GHC, Emscripten, and Node on `PATH`; details are in `spike/ccc/README.md`):
+
+```sh
+git clone --branch ccc --recurse-submodules https://github.com/Tritlo/microhsbitnet.git
+cd microhsbitnet
+make -C vendor/microhs bin/gmhs bin/cpphs mhs.conf
+make -C spike/ccc web-demo
+cd spike/ccc/web && npm ci && DEMO=1 HEADED=1 npm run demo
+```
+
+The showcase page is `spike/ccc/web/demo.html`. It streams five prompts and
+fetches weights from `microsoft/bitnet-b1.58-2B-4T` on Hugging Face. Swedish
+(`Säg hej på svenska.`) is not in that list. It remains in the reference suite
+(`make -C spike/ccc web-check`), which still compares every prompt, including
+Swedish, with the native C tokens.
+
+What is source-derived: softmax, RMSNorm, residual add, and the squared-ReLU
+gate. Their loops come from `ArrayPrograms.hs`. BitLinear's quantize, trit
+contribution, and rescale expressions come from `Programs.hs`; the packed-row
+schedule is still an explicit template. Attention's score, softmax, and mix
+use source expressions inside one kernel template. The LM head multiplies and
+adds with the source operations, interpreted as a sequential binary64 dot so
+the argmax matches the C reference's double accumulator. The TypeScript file
+is the WebGPU binding, 355 lines, with no tensor schedule in it.
+
+Limits, stated plainly: context is still 2048 positions because the attention
+scores live in workgroup memory. There is no CPU fallback. A browser without
+WebGPU gets a short explanation and stops. The full 30-layer token run was
+last measured on an M4 in Chrome, before the exp and head changes in this
+branch: six prompts, 47/52 tokens matched, max relative L2 9.79%, checked
+driver about 65 s. This branch's shader arithmetic matches libm `expf` and
+binary64 add/mul on a software Vulkan adapter (32,768 samples, 0 mismatches).
+The 2B WebGPU run was not remeasured here, because this machine has no
+physical GPU. Until that rerun, do not treat the old 9.79% or 65 s figures as
+the numbers for these kernels.
+
+GitHub Pages is wired in `.github/workflows/ccc-pages.yml` and does not run on
+push. It deploys only after a manual run and only if the repository variable
+`ENABLE_PAGES` is `true`. See `spike/ccc/README.md` for the reproduction guide
+and `spike/ccc/record-demo.sh` for the Mac recording steps.
+
+The iota-tree viewer lives in [Tritlo/Combinate](https://github.com/Tritlo/Combinate),
+not in this repository. A local Combinate patch adds the `KK` and `KA`
+combinator tags; nothing here links that tree, so the patch is not vendored.
+
 ## MicroHs → CCC → WASM and WebGPU
 
 This branch adds an experimental path that replaces the handwritten C neural
@@ -26,20 +84,24 @@ HTTP operations through opaque handles. WebGPU executes the generated kernels. M
 activations, and the KV cache remain on the GPU between operations. Softmax runs
 on the GPU too. Its complete Haskell definition uses maps and ordered reductions.
 The compiler derives its workgroup schedule and reuses the attention score storage.
-Other tensor operations still use explicit array templates.
+RMSNorm, residual add, and the squared-ReLU gate now use the same source-derived
+array schedule as softmax. BitLinear and attention still have explicit schedules
+around source expressions. The LM head dot is sequential binary64.
 There is no C neural kernel or CPU softmax fallback in the browser runtime.
 The MicroHs runtime itself still comes from upstream C.
 
 The MicroHs-controlled experiment runs the complete 30-layer model across six prompts.
 Five generated sequences match the native C reference exactly. Swedish diverges
-after five matching tokens. The former 1% vector-error target is **not met**;
+after five matching tokens. The former 1% vector-error target was **not met** on that run;
 numerical comparisons are diagnostics, not a compatibility claim.
+The sentences below are that M4 measurement. The visitor section above is the
+status of the kernels in this branch.
 
 The current implementation passes all 23 browser fixture checks and the six-prompt
 rerun on Apple M4. All 52 GPU-selected tokens are unchanged from the earlier
 runtime. Weights upload once and remain GPU-resident; no bulk weight bytes pass
 through WASM. MicroHs prepares and replays reusable plans with persistent GPU
-buffers and bind groups. The browser bridge has 290 TypeScript source lines.
+buffers and bind groups. The browser bridge was 290 lines before the showcase page; it is 355 lines now, and it still contains no tensor schedule.
 The checked suite takes 65.23 s, versus 65.07 s before source-derived softmax
 on the same Chrome build. Token execution takes 34.70 s versus 34.76 s.
 These are single observations. The earlier uncached MicroHs run took 482.49 s.

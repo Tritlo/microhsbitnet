@@ -185,3 +185,16 @@ The 209 positions create no new GPU buffers, bind groups, or plans. The generate
 softmax schedule needs no extra workgroup vector or host dispatch. Full-model
 numerical limits are unchanged. RMSNorm, BitLinear, and other tensor schedules
 remain explicit templates.
+
+## Showcase follow-up
+
+RMSNorm, residual add, and the squared-ReLU gate are now derived from
+`ArrayPrograms.hs` the same way softmax is. The attention and BitLinear
+schedules are still templates around source expressions. The LM head dot is a
+sequential binary64 interpretation of the source multiply and add, matching
+`bnargmax_bf16`. Softmax calls `exp32`, checked against libm `expf`.
+
+The showcase page omits Swedish. The reference suite still contains it.
+`web-result.json` from a check run reports `demo` and `reference` separately.
+The 2026-10-16 Apple figures above are the kernels from before this follow-up.
+A physical WebGPU rerun is still required before replacing those figures.
