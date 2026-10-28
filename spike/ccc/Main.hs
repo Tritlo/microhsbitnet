@@ -39,7 +39,10 @@ main = do
     layerChecked <- checkedModule "spike/ccc/LayerPrograms.hs"
     arrayChecked <- checkedModule "spike/ccc/ArrayPrograms.hs"
     softmax <- either fail pure (compileArray arrayChecked "softmax")
-    layerShader <- either fail pure (layerSource layerChecked softmax)
+    rms <- either fail pure (compileArray arrayChecked "rmsNorm")
+    residual <- either fail pure (compileArray arrayChecked "residual")
+    gated <- either fail pure (compileArray arrayChecked "gated")
+    layerShader <- either fail pure (layerSource layerChecked softmax rms residual gated)
     headShader <- either fail pure (headSource layerChecked)
     frequency <- either fail pure (compileFloatPair layerChecked "frequency")
     multiply <- either fail pure (compileFloatPair layerChecked "product")
@@ -59,13 +62,16 @@ main = do
         expectedContributions = [runCat contribution (field, activation) | field <- [0 .. 2], activation <- [-128, -1, 0, 1, 127]]
     sourceResults <- lines <$> readProcess "bin/ccc-spike/source" [] ""
     case sourceResults of
-        [scalarResults, contributionResults, "True", "True", peakResults, quantizeResults, rescaleResults, arrayResults] -> do
+        [scalarResults, contributionResults, "True", "True", peakResults, quantizeResults, rescaleResults, arrayResults, rmsResults, residualResults, gatedResults] -> do
             unless ((read scalarResults :: [Float]) == expectedScalar) $ fail "Stock MicroHs and categorical scalar results differ"
             unless ((read contributionResults :: [Int32]) == expectedContributions) $ fail "Stock MicroHs and categorical contribution results differ"
             unless ((read peakResults :: [Float]) == map (runCat peak) [(-8, 4), (0, 0.0000001)]) $ fail "Stock MicroHs and categorical maxima differ"
             unless ((read quantizeResults :: [Int32]) == [runCat quantize (value, 127) | value <- [-127, -126.5, -2.5, -1.5, -0.5, 0, 0.5, 1.5, 2.5, 126.5, 127]]) $ fail "Stock MicroHs and categorical quantization differ"
             unless ((read rescaleResults :: [Float]) == map (runCat rescale) [(1024, (0.125, 127)), (-17, (0.5, 0))]) $ fail "Stock MicroHs and categorical rescaling differ"
             arrayChecks softmax (read arrayResults)
+            derivedArray "rmsNorm" rms [1, 2, 3, 4] [1, 1, 0.5, 2] (read rmsResults)
+            derivedArray "residual" residual [1, -2] [3, 4] (read residualResults)
+            derivedArray "gated" gated [-1, 2, 0.5] [4, 5, 6] (read gatedResults)
         _ -> fail "Unexpected stock MicroHs reference output"
     unless (runCat (Compose Apply (Pair (Compose (Curry AddInt) First) Second)) (7, 4) == (11 :: Int32)) $
         fail "Categorical curry/apply check failed"
@@ -149,7 +155,7 @@ arrayChecks softmax references = do
     createDirectoryIfMissing True directory
     shader <- either fail pure (ArrayGraph.standaloneSource softmax)
     writeFile "bin/ccc-spike/softmax.wgsl" shader
-    plan <- either fail pure (ArrayGraph.emitWorkgroup softmax 2048 "scores" "count")
+    plan <- either fail pure (ArrayGraph.emitWorkgroup softmax 2048 [(0, "scores")] "count" "score")
     unless (ArrayGraph.scratchVectors plan == 0) $ fail "Softmax requires unexpected extra vector storage"
     forM_ (zip Programs.arrayInputs references) $ \((name, inputs), expected) -> do
         actual <- either fail pure (ArrayGraph.runProgram softmax inputs)
@@ -175,6 +181,14 @@ arrayChecks softmax references = do
     writeFile (directory ++ "cases.txt") (unlines ([name ++ " " ++ show (length values) | (name, values) <- Programs.arrayInputs] ++ ["doubled " ++ show (length inputs)]))
     writeFile "bin/ccc-spike/array-graph.txt" (ArrayGraph.describe softmax ++ "\n" ++ unlines (ArrayGraph.declarations plan ++ ArrayGraph.statements plan))
     putStrLn "Stock MicroHs / array graph parity, source mutation, and scratch reuse PASS"
+
+-- | Check a two-input source array against the stock runtime and its graph interpreter.
+derivedArray :: String -> ArrayGraph.Program -> [Float] -> [Float] -> [Float] -> IO ()
+derivedArray name program left right expected = do
+    actual <- either fail pure (ArrayGraph.runVectors program [left, right])
+    let close value reference = abs (value - reference) <= 0.000002 * max 1 (abs reference)
+    unless (length actual == length expected && and (zipWith close actual expected)) $
+        fail ("Stock MicroHs and derived array graph differ: " ++ name ++ " " ++ show actual ++ " vs " ++ show expected)
 
 -- | Create packed matrices that exercise all fields and a partial thread group.
 writeSynthetic :: FilePath -> (String, Int, Int) -> IO ()

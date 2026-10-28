@@ -48,6 +48,9 @@ main = do
     print [quantize value 127 | value <- [-127, -126.5, -2.5, -1.5, -0.5, 0, 0.5, 1.5, 2.5, 126.5, 127]]
     print [rescale 1024 0.125 127, rescale (-17) 0.5 0]
     print [A.toList (ArrayPrograms.softmax (A.fromList values)) | (_, values) <- arrayInputs]
+    print (A.toList (ArrayPrograms.rmsNorm (A.fromList [1, 2, 3, 4]) (A.fromList [1, 1, 0.5, 2])))
+    print (A.toList (ArrayPrograms.residual (A.fromList [1, -2]) (A.fromList [3, 4])))
+    print (A.toList (ArrayPrograms.gated (A.fromList [-1, 2, 0.5]) (A.fromList [4, 5, 6])))
 
 -- | Exercise array lengths, stable exponentials, and the workgroup capacity.
 arrayInputs :: [(String, [Float])]

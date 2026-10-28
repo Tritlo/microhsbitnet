@@ -11,7 +11,18 @@ GHCFLAGS += -package ghc-prim -package containers -package deepseq -package dire
 GHCFLAGS += -package text -package bytestring -package filepath -package array
 GHCFLAGS += -Wno-x-partial
 
-.PHONY: all check web web-check fixtures network-fixtures
+.PHONY: all check web web-check web-demo numeric-check fixtures network-fixtures
+
+# Shaders, WASM, and the showcase page. Does not download the model and does not publish it.
+web-demo: $(BUILD)/ccc-compile $(BUILD)/source $(BUILD)/web/microhs.mjs
+	mkdir -p $(BUILD)/cases
+	@test -f $(BUILD)/cases/real-cases.txt || : > $(BUILD)/cases/real-cases.txt
+	cd $(ROOT) && bin/ccc-spike/ccc-compile
+	cd web && npm run build
+
+numeric-check:
+	python3 check-float.py
+
 all: $(BUILD)/ccc-compile $(BUILD)/source $(BUILD)/prepare $(BUILD)/metal-runner
 
 fixtures: $(BUILD)/ccc-compile $(BUILD)/source $(BUILD)/prepare $(BUILD)/bitlinear-reference $(BUILD)/prepare-layer

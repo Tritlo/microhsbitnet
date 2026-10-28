@@ -1,6 +1,6 @@
 {-# LANGUAGE GADTs #-}
 
-module CCC (Cat (..), Code (..), runCat, emitCat, emitC, emitWGSL, emitWGSLRelaxed, wgslPrelude, showCat) where
+module CCC (Cat (..), Code (..), runCat, emitCat, emitC, emitWGSL, emitWGSLRelaxed, emitBinary64, wgslPrelude, showCat) where
 
 import Control.Exception (ArithException (Overflow), throw)
 import Data.Int (Int32)
@@ -108,8 +108,12 @@ emitWGSL = emitCode WGSL
 emitWGSLRelaxed :: Cat input output -> Code input -> Either String (Code output)
 emitWGSLRelaxed = emitCode WGSLRelaxed
 
+-- | Interpret Float addition and multiplication as sequential binary64 operations.
+emitBinary64 :: Cat input output -> Code input -> Either String (Code output)
+emitBinary64 = emitCode Binary64
+
 -- | Select the syntax for target-specific scalar operations.
-data Target = Metal | NativeC | WGSL | WGSLRelaxed
+data Target = Metal | NativeC | WGSL | WGSLRelaxed | Binary64
 
 -- | Interpret the shared graph with target integer and conditional syntax.
 emitCode :: Target -> Cat input output -> Code input -> Either String (Code output)
@@ -129,11 +133,13 @@ emitCode target graph input = case graph of
         let literal = show (fromIntegral value :: Word32) ++ "u"
             cast = case target of Metal -> "as_type<int>"; _ -> "bitcast<i32>"
          in Right (IntCode (case target of NativeC -> "((int32_t)" ++ literal ++ ")"; _ -> cast ++ "(" ++ literal ++ ")"))
-    AddFloat -> case input of PairCode (FloatCode left) (FloatCode right) -> Right (FloatCode (binary "+" left right))
+    AddFloat -> case input of
+        PairCode (FloatCode left) (FloatCode right) ->
+            Right (FloatCode (case target of Binary64 -> "add_f64(" ++ left ++ ", " ++ right ++ ")"; _ -> binary "+" left right))
     SubFloat -> case input of PairCode (FloatCode left) (FloatCode right) -> Right (FloatCode (binary "-" left right))
     MulFloat -> case input of
         PairCode (FloatCode left) (FloatCode right) ->
-            Right (FloatCode (case target of WGSL -> "multiply32(" ++ left ++ ", " ++ right ++ ")"; _ -> binary "*" left right))
+            Right (FloatCode (case target of WGSL -> "multiply32(" ++ left ++ ", " ++ right ++ ")"; Binary64 -> "mul_f64(" ++ left ++ ", " ++ right ++ ")"; _ -> binary "*" left right))
     DivFloat -> case input of
         PairCode (FloatCode left) (FloatCode right) ->
             Right (FloatCode (case target of WGSL -> "divide32(" ++ left ++ ", " ++ right ++ ")"; _ -> binary "/" left right))
@@ -143,7 +149,7 @@ emitCode target graph input = case graph of
     MaxFloat -> case input of PairCode (FloatCode left) (FloatCode right) -> Right (FloatCode ((case target of NativeC -> "fmaxf("; _ -> "max(") ++ left ++ ", " ++ right ++ ")"))
     SqrtFloat -> case input of
         FloatCode value -> Right (FloatCode ((case target of WGSL -> "sqrt32("; NativeC -> "sqrtf("; _ -> "sqrt(") ++ value ++ ")"))
-    ExpFloat -> case input of FloatCode value -> Right (FloatCode ((case target of NativeC -> "expf("; _ -> "exp(") ++ value ++ ")"))
+    ExpFloat -> case input of FloatCode value -> Right (FloatCode ((case target of NativeC -> "expf("; WGSL -> "exp32("; _ -> "exp(") ++ value ++ ")"))
     SinFloat -> case input of FloatCode value -> Right (FloatCode ((case target of NativeC -> "sinf("; _ -> "sin(") ++ value ++ ")"))
     CosFloat -> case input of FloatCode value -> Right (FloatCode ((case target of NativeC -> "cosf("; _ -> "cos(") ++ value ++ ")"))
     PowFloat -> case input of PairCode (FloatCode left) (FloatCode right) -> Right (FloatCode ((case target of NativeC -> "powf("; _ -> "pow(") ++ left ++ ", " ++ right ++ ")"))

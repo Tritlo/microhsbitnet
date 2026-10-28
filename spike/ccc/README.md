@@ -3,9 +3,17 @@
 The spike demonstrates how to write numerical kernels in MicroHs and run them
 on a GPU. It compiles selected functions from `Programs.hs`, `LayerPrograms.hs`, and `ArrayPrograms.hs`
 through the upstream MicroHs parser and type checker. It translates the checked scalar expressions
-to typed categorical operations. It derives a complete softmax array graph from
-source maps and reductions. It generates Metal and WGSL kernels from those graphs.
-The model weights remain packed input data.
+to typed categorical operations. It derives softmax, RMSNorm, residual add, and
+the squared-ReLU gate from source maps and reductions. It generates Metal and WGSL
+kernels from those graphs. The model weights remain packed input data.
+
+The showcase page (`web/demo.html`) streams five prompts and does not include
+the Swedish prompt. Swedish remains in the reference suite. `check-float.py`
+compares the software binary64 and `exp32` shader with libm; that check does
+not need the model. A full WebGPU rerun of the 2B model was not possible on the
+machine that prepared this page, which has no physical GPU. The Apple M4
+figures later in this file are the previous kernels, not a measurement of the
+`exp32` and binary64 head changes.
 
 The target is a direct process: write numerical functions in MicroHs, compile
 their supported expressions, and execute the generated kernels. The experiment

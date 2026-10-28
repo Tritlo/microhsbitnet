@@ -1,7 +1,7 @@
-module SourceArray (Vector, fromList, toList, map, sum, maximum) where
+module SourceArray (Vector, fromList, toList, map, zipWith, sum, maximum, count) where
 
 import Data.List (foldl')
-import Prelude hiding (map, maximum, sum)
+import Prelude hiding (map, maximum, sum, zipWith)
 import qualified Prelude
 
 -- | A finite vector with a CPU interpretation for the array compiler intrinsics.
@@ -19,6 +19,10 @@ toList (Vector values) = values
 map :: (Float -> Float) -> Vector Float -> Vector Float
 map function (Vector values) = Vector (Prelude.map function values)
 
+-- | Combine two equal-length vectors in index order.
+zipWith :: (Float -> Float -> Float) -> Vector Float -> Vector Float -> Vector Float
+zipWith function (Vector left) (Vector right) = Vector (Prelude.zipWith function left right)
+
 -- | Add floats from left to right, starting at zero.
 sum :: Vector Float -> Float
 sum (Vector values) = foldl' (+) 0 values
@@ -27,3 +31,7 @@ sum (Vector values) = foldl' (+) 0 values
 maximum :: Vector Float -> Float
 maximum (Vector []) = error "Array maximum requires a nonempty vector"
 maximum (Vector (first : remaining)) = foldl' max first remaining
+
+-- | Read the vector length as a Float. This is a compiler intrinsic, not a reduction.
+count :: Vector Float -> Float
+count (Vector values) = fromIntegral (Prelude.length values)

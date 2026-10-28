@@ -164,10 +164,11 @@ wgslSource scalar (PackedMatVec mapper reducer) = do
 -- | Generate finite-input BitLinear with source-defined quantization and scales.
 bitLinearSource :: Cat (Float, Float) Float -> Cat (Float, Float) Int32 -> Cat (Int32, (Float, Float)) Float -> ArrayPlan -> Either String String
 bitLinearSource peak quantize rescale (PackedMatVec mapper reducer) = do
-    case quantize of
-        Compose RoundFloat (Compose MaxFloat (Pair (FloatConstant lower) (Compose MinFloat (Pair (FloatConstant upper) _))))
-            | lower == -128 && upper == 127 -> pure ()
-        _ -> Left "BitLinear requires source quantization clamped to the signed int8 range before rounding"
+    let clamped = case quantize of
+            Compose RoundFloat (Compose MaxFloat (Pair (FloatConstant lower) (Compose MinFloat (Pair (FloatConstant upper) _)))) ->
+                lower == -128 && upper == 127
+            _ -> False
+    unless clamped (Left "BitLinear requires source quantization clamped to the signed int8 range before rounding")
     peakLaneCode <- emitWGSL peak (PairCode (FloatCode "maximum") (FloatCode "inputs[column]"))
     peakTreeCode <- emitWGSL peak (PairCode (FloatCode "maxima[lane]") (FloatCode "maxima[lane + stride]"))
     quantizedCode <- emitWGSL quantize (PairCode (FloatCode "inputs[column]") (FloatCode "maxima[0]"))

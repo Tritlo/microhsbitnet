@@ -58,6 +58,20 @@ let stopped = false;
 function log(message: string): void {
   messages.push(message);
   if (resultElement) resultElement.textContent = messages.join("\n");
+  const progress = document.querySelector("#progress");
+  const loaded = /Loaded (\d+)\/(\d+)/.exec(message);
+  if (progress && loaded) {
+    const done = Number(loaded[1]);
+    const total = Number(loaded[2]);
+    progress.textContent = `Weights ${done}/${total}`;
+    const bar = document.querySelector<HTMLElement>("#bar");
+    if (bar) bar.style.width = `${Math.round((100 * done) / total)}%`;
+  }
+  if (message.startsWith("PROMPT ")) appendTranscript("\n\n" + message.slice("PROMPT ".length) + "\n");
+  if (message.startsWith("TOKEN ")) {
+    const id = Number(message.slice("TOKEN ".length));
+    if (Number.isInteger(id)) appendTranscript(decodeToken(id));
+  }
   console.log(message);
 }
 
@@ -118,7 +132,12 @@ async function initialize(): Promise<unknown> {
     void device.lost.then((lost) => { if (lost.reason !== "destroyed") failure(new Error(`WebGPU device lost: ${lost.message}`)); });
   }
   const { maxBufferSize, maxStorageBufferBindingSize, maxUniformBufferBindingSize, maxComputeWorkgroupsPerDimension } = device.limits;
-  return { adapter: adapterDescription, maxBufferSize, maxStorageBufferBindingSize, maxUniformBufferBindingSize, maxComputeWorkgroupsPerDimension };
+  const params = new URLSearchParams(location.search);
+  const showcase = params.get("demo") === "1";
+  const model =
+    params.get("model") ??
+    (showcase ? "https://huggingface.co/microsoft/bitnet-b1.58-2B-4T/resolve/main/model.safetensors" : "/model.safetensors");
+  return { adapter: adapterDescription, maxBufferSize, maxStorageBufferBindingSize, maxUniformBufferBindingSize, maxComputeWorkgroupsPerDimension, mode: showcase ? "demo" : "check", model };
 }
 
 async function perform(fields: BrowserRequest): Promise<unknown> {
@@ -275,7 +294,53 @@ browser.microhsBrowser = {
   },
 };
 
+const demoParams = new URLSearchParams(location.search);
+const tokenBytes = new Map<number, Uint8Array>();
+
+function appendTranscript(text: string): void {
+  const transcript = document.querySelector("#transcript");
+  if (!transcript || !text) return;
+  transcript.textContent = (transcript.textContent ?? "") + text;
+}
+
+function levelToByte(codepoint: number): number {
+  if (codepoint < 256) return codepoint;
+  const nonPrintable = [...Array(33).keys(), ...Array.from({ length: 34 }, (_, index) => 127 + index), 173];
+  return nonPrintable[codepoint - 256] ?? 0;
+}
+
+function decodeToken(id: number): string {
+  if (id === 128009 || id === 128001) return "";
+  const bytes = tokenBytes.get(id);
+  if (!bytes) return "";
+  return new TextDecoder("utf-8", { fatal: false }).decode(bytes);
+}
+
+async function loadDecoder(): Promise<void> {
+  if (demoParams.get("demo") !== "1") return;
+  const response = await fetch("https://huggingface.co/microsoft/bitnet-b1.58-2B-4T/resolve/main/tokenizer.json");
+  if (!response.ok) throw new Error(`Tokenizer download failed: HTTP ${response.status}`);
+  const tokenizer = (await response.json()) as { model?: { vocab?: Record<string, number> }; added_tokens?: { id: number; content: string }[] };
+  const vocab = tokenizer.model?.vocab ?? {};
+  for (const [token, id] of Object.entries(vocab)) {
+    const bytes = Uint8Array.from([...token].map((character) => levelToByte(character.codePointAt(0) ?? 0)));
+    tokenBytes.set(id, bytes);
+  }
+  for (const added of tokenizer.added_tokens ?? []) {
+    tokenBytes.set(added.id, new TextEncoder().encode(added.content));
+  }
+}
+
 async function start(): Promise<void> {
+  if (!navigator.gpu) {
+    const message = "This browser has no WebGPU. The model runs in the page only where WebGPU is available (current Chrome or Edge on Linux, Windows, or Mac). There is no CPU fallback.";
+    log(message);
+    const status = document.querySelector("#status");
+    if (status) status.textContent = message;
+    publish({ passed: false, error: message });
+    return;
+  }
+  if (demoParams.get("demo") === "1") void loadDecoder().catch((error: unknown) => log(error instanceof Error ? error.message : String(error)));
   const modulePath = "./microhs.mjs";
   const createMicroHs = (await import(modulePath)).default as (options: { print(message: string): void; printErr(message: string): void }) => Promise<WasmModule>;
   wasm = await createMicroHs({ print: log, printErr: log });

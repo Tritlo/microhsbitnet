@@ -2,9 +2,24 @@ import { createServer } from "node:http";
 import { readFile, writeFile } from "node:fs/promises";
 import { stat } from "node:fs/promises";
 import { createReadStream } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { resolve, extname, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium, type Browser } from "playwright";
+
+function chromeExecutable(): string {
+  if (process.env.CHROME) return process.env.CHROME;
+  if (process.platform === "darwin") return "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
+  if (process.platform === "win32") return `${process.env.PROGRAMFILES ?? "C:\\\\Program Files"}\\Google\\Chrome\\Application\\chrome.exe`;
+  for (const candidate of ["google-chrome", "google-chrome-stable", "microsoft-edge", "chromium", "chromium-browser"]) {
+    try {
+      return execFileSync("which", [candidate], { encoding: "utf8" }).trim();
+    } catch {
+      /* try the next installed browser */
+    }
+  }
+  return "google-chrome";
+}
 
 const root = resolve(fileURLToPath(new URL("../../../../bin/ccc-spike/", import.meta.url)));
 const mime: Record<string, string> = { ".html": "text/html", ".js": "text/javascript", ".mjs": "text/javascript", ".wasm": "application/wasm" };
@@ -45,10 +60,13 @@ const address = server.address();
 if (!address || typeof address === "string") throw new Error("Server did not start");
 let browser: Browser | undefined;
 try {
+  const gpuArgs = ["--enable-unsafe-webgpu"];
+  if (process.platform === "darwin") gpuArgs.push("--use-angle=metal");
+  if (process.env.WEBGPU_STRICT === "1") gpuArgs.push("--enable-webgpu-developer-features");
   browser = await chromium.launch({
-    executablePath: process.env.CHROME ?? "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-    headless: true,
-    args: [...(process.platform === "darwin" ? ["--enable-unsafe-webgpu", "--use-angle=metal"] : ["--enable-unsafe-webgpu"]), ...(process.env.WEBGPU_STRICT === "1" ? ["--enable-webgpu-developer-features"] : [])],
+    executablePath: chromeExecutable(),
+    headless: process.env.HEADED !== "1",
+    args: gpuArgs,
   });
   const page = await browser.newPage();
   const pageErrors: Error[] = [];
@@ -56,7 +74,9 @@ try {
   page.on("pageerror", (error) => { pageErrors.push(error); console.error(error); });
   const query = new URLSearchParams();
   if (process.env.WEBGPU_STRICT === "1") query.set("strict", "1");
-  await page.goto(`http://127.0.0.1:${address.port}/web/index.html?${query}`);
+  const pageName = process.env.DEMO === "1" ? "demo.html" : "index.html";
+  if (process.env.DEMO === "1") query.set("demo", "1");
+  await page.goto(`http://127.0.0.1:${address.port}/web/${pageName}?${query}`);
   await page.waitForFunction(() => (globalThis as unknown as { microhsCheck?: unknown }).microhsCheck !== undefined, undefined, { timeout: 600_000 });
   const result = await page.evaluate(() => (globalThis as unknown as { microhsCheck?: { passed: boolean; error?: string; [key: string]: unknown } }).microhsCheck);
   await writeFile(resolve(root, "web-result.json"), JSON.stringify({ browserVersion: browser.version(), strictMathDevelopmentProfile: process.env.WEBGPU_STRICT === "1", ...result }, null, 2) + "\n");

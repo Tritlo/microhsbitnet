@@ -1,0 +1,67 @@
+# Builds the static showcase and, only when enabled, publishes it.
+# Merging this workflow does not deploy anything. Publishing requires all of:
+#   1. GitHub Pages enabled for this repository (GitHub Actions source).
+#   2. Repository variable ENABLE_PAGES set to true.
+#   3. A manual run of this workflow.
+name: CCC showcase page
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: ccc-pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: haskell-actions/setup@v2
+        with:
+          ghc-version: "9.12.2"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install Emscripten
+        run: |
+          git clone https://github.com/emscripten-core/emsdk.git "$RUNNER_TEMP/emsdk"
+          "$RUNNER_TEMP/emsdk/emsdk" install 6.0.12
+          "$RUNNER_TEMP/emsdk/emsdk" activate 6.0.12
+          echo "$RUNNER_TEMP/emsdk/upstream/emscripten" >> "$GITHUB_PATH"
+      - name: Build MicroHs and the showcase assets
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends build-essential clang python3
+          make -C vendor/microhs bin/gmhs bin/cpphs mhs.conf
+          cd spike/ccc/web && npm ci
+          make -C spike/ccc web-demo
+          mkdir -p "$RUNNER_TEMP/pages/web"
+          cp bin/ccc-spike/bitlinear.wgsl bin/ccc-spike/layer.wgsl bin/ccc-spike/head.wgsl bin/ccc-spike/checks.wgsl bin/ccc-spike/rotary.bin "$RUNNER_TEMP/pages/"
+          cp -a bin/ccc-spike/web/. "$RUNNER_TEMP/pages/web/"
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: ${{ runner.temp }}/pages
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ccc-showcase
+          path: ${{ runner.temp }}/pages
+          if-no-files-found: error
+
+  deploy:
+    needs: build
+    if: vars.ENABLE_PAGES == 'true'
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

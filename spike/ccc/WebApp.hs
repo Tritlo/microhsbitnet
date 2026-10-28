@@ -145,6 +145,18 @@ normShapes =
     , ("mlp.ffn_sub_norm.weight", 6912)
     ]
 
+-- | Showcase prompts. Swedish stays in the reference suite and out of this list.
+demoCases :: [NetworkCase]
+demoCases =
+    [ demo "hello" "Hello!" [1502, 25, 22691, 0, 128009, 72803, 25, 220]
+    , demo "question" "What is the capital of France?" [1502, 25, 3639, 374, 279, 6864, 315, 9822, 30, 128009, 72803, 25, 220]
+    , demo "arithmetic" "What is 7 + 5? Reply with just the number." [1502, 25, 3639, 374, 220, 22, 489, 220, 20, 30, 18321, 449, 1120, 279, 1396, 13, 128009, 72803, 25, 220]
+    , demo "code" "Complete this Haskell definition with one expression:\nadd :: Int -> Int -> Int\nadd left right =" [1502, 25, 19121, 420, 63276, 7419, 449, 832, 7645, 25, 198, 723, 3588, 1357, 1492, 1357, 1492, 1357, 198, 723, 2163, 1314, 284, 128009, 72803, 25, 220]
+    , demo "longer" "Summarize this paragraph in one sentence:\nA small coastal town opened a library in an unused railway station. Volunteers repaired the rooms, collected donated books, and added free internet access. Within six months, children visited after school, older residents attended reading groups, and local students used the quiet space to study together." [1502, 25, 220, 50, 84, 76, 76, 64, 81, 72, 89, 68, 420, 14646, 304, 832, 11914, 25, 198, 32, 2678, 35335, 6424, 9107, 264, 6875, 304, 459, 20604, 40106, 8216, 13, 86270, 52834, 279, 12295, 11, 14890, 34468, 6603, 11, 323, 3779, 1949, 7757, 2680, 13, 25218, 4848, 4038, 11, 2911, 12263, 1306, 2978, 11, 9191, 11062, 18677, 5403, 5315, 11, 323, 2254, 4236, 1511, 279, 11594, 3634, 311, 4007, 3871, 13, 128009, 72803, 25, 220]
+    ]
+  where
+    demo name text prompt = NetworkCase name text prompt [] []
+
 -- | Initialize WebGPU, check fixtures, and run the resident-model suite.
 application :: Browser ()
 application = do
@@ -152,13 +164,24 @@ application = do
     started <- liftBrowser clock
     messages <- liftBrowser (newIORef [])
     let adapter = field "adapter" initialized
+        showcase = optional "mode" initialized == Just (JString "demo")
+        modelUrl = maybe "/model.safetensors" asString (optional "model" initialized)
+        tokenLimit = if showcase then 24 else 10
     validateAdapter initialized
     logMessage messages ("GPU: " ++ adapterDescription adapter)
-    fixtureStarted <- liftBrowser clock
-    samples <- runFixtures
-    fixtureFinished <- liftBrowser clock
-    cases <- loadSuite
-    model <- openModel "/model.safetensors"
+    (samples, fixtureStarted, fixtureFinished) <-
+        if showcase
+            then do
+                logMessage messages "Showcase mode: reference fixtures stay in the check path; this page streams the five demo prompts"
+                now <- liftBrowser clock
+                pure ([], now, now)
+            else do
+                fixtureStarted <- liftBrowser clock
+                samples <- runFixtures
+                fixtureFinished <- liftBrowser clock
+                pure (samples, fixtureStarted, fixtureFinished)
+    cases <- if showcase then pure demoCases else loadSuite
+    model <- openModel modelUrl
     validateModel model
     logMessage messages "Range-loaded model header: 542 tensors; bulk weights remain outside the WASM heap"
     weights <- prepareWeights model
@@ -189,7 +212,7 @@ application = do
     require (plansCompiled == 4) "Expected four network plans to be compiled before the suite"
     require (statistic "submissions" afterPlans == statistic "submissions" afterUpload) "Network plan preparation submitted GPU work"
     logMessage messages ("Prepared four reusable network plans: " ++ show planSetupMs ++ " ms")
-    results <- mapM (runCase messages engine plans) cases
+    results <- mapM (runCase messages engine plans showcase tokenLimit) cases
     networkFinished <- liftBrowser clock
     afterRun <- statistics
     let positions = sum (map resultPositions results)
@@ -229,7 +252,11 @@ application = do
     require (runPlanRuns == fromIntegral positions) "Expected one reusable plan run per consumed network token"
     disposeEngine engine
     logMessage messages ("Full-model diagnostics: " ++ show (errorVectors errors) ++ " comparable normalized vectors; maximum relative L2 " ++ show (100 * errorRelative errors) ++ "%; " ++ show (errorWithinBound errors) ++ " within 1%")
-    logMessage messages "MicroHs control and validation -> generated WGSL -> physical WebGPU execution PASS; full-model accuracy is diagnostic"
+    logMessage messages
+        ( if showcase
+            then "Showcase generation finished. Swedish stays in the reference check and is not in this prompt list."
+            else "MicroHs control and validation -> generated WGSL -> physical WebGPU execution PASS; full-model accuracy is diagnostic"
+        )
     finished <- liftBrowser clock
     recordedMessages <- liftBrowser (reverse <$> readIORef messages)
     liftBrowser $
@@ -237,13 +264,18 @@ application = do
             JObject
                 [ ("passed", JBool True)
                 , ("executionPassed", JBool True)
-                , ("fixturesPassed", JBool True)
+                , ("fixturesPassed", JBool (not showcase))
+                , ("fixturesRun", JBool (not showcase))
+                , ("referenceComparison", JBool (not showcase))
                 , ("accuracyRequired", JBool False)
                 , ("adapter", adapter)
                 , ("fixtureMs", number (fixtureFinished - fixtureStarted))
                 , ("driverTotalMs", number (finished - started))
                 , ("samples", JArray samples)
+                , ("mode", JString (if showcase then "demo" else "check"))
                 , ("network", networkJSON uploadMs planSetupMs (networkFinished - networkStarted) results errors)
+                , ("demo", let shown = filter (not . swedish) results in networkJSON uploadMs planSetupMs (sum (map resultDriverMs shown)) shown (foldl' combineErrors emptyErrors (map resultErrors shown)))
+                , ("reference", networkJSON uploadMs planSetupMs (networkFinished - networkStarted) results errors)
                 , ("diagnostics", JArray (reverse (errorRecords errors)))
                 , ("residency", residency)
                 , ("messages", JArray (map JString recordedMessages))
@@ -567,21 +599,26 @@ checkLogits step token logit = case stepLogitsOffset step of
         selected <- readVector (stepData step) (offset + token * 4) 1 "GPU selected logit"
         require (selected == [logit]) "GPU selected logit differs from the logits buffer"
 
--- | Reset cache positions and run a case with an independent ten-token limit.
-runCase :: IORef [String] -> Engine -> NetworkPlans -> NetworkCase -> Browser CaseResult
-runCase messages engine plans testCase = do
+-- | The Swedish prompt remains a reference case and is not part of the showcase story.
+swedish :: CaseResult -> Bool
+swedish result = caseName (resultCase result) == "swedish"
+
+-- | Reset cache positions and run a case with an independent token limit.
+runCase :: IORef [String] -> Engine -> NetworkPlans -> Bool -> Int -> NetworkCase -> Browser CaseResult
+runCase messages engine plans showcase tokenLimit testCase = do
     liftBrowser (resetEngine engine)
     started <- liftBrowser clock
-    logMessage messages ("Network case " ++ caseName testCase ++ ": " ++ show (length (casePrompt testCase)) ++ " prompt tokens; up to 10 generated tokens; caches reset")
-    result <- runPositions messages engine plans testCase started (CaseState 0 Nothing True [] emptyErrors 0 0)
+    logMessage messages ("PROMPT " ++ casePromptText testCase)
+    logMessage messages ("Network case " ++ caseName testCase ++ ": " ++ show (length (casePrompt testCase)) ++ " prompt tokens; up to " ++ show tokenLimit ++ " generated tokens; caches reset")
+    result <- runPositions messages engine plans showcase tokenLimit testCase started (CaseState 0 Nothing True [] emptyErrors 0 0)
     forM_ (caseReferences testCase) $ \reference ->
         liftBrowser (mapM_ dropHost (referenceHidden reference : referenceNormed reference : referenceLayers reference))
     logMessage messages (caseName testCase ++ ": " ++ show (errorVectors (resultErrors result)) ++ "/" ++ show (resultPositions result) ++ " normalized vectors comparable; " ++ show (matchingTokens result) ++ "/" ++ show (length (resultTokens result)) ++ " GPU tokens match C; " ++ show (resultDriverMs result) ++ " ms")
     pure result
 
 -- | Consume prompt or GPU-selected tokens without consulting reference length.
-runPositions :: IORef [String] -> Engine -> NetworkPlans -> NetworkCase -> Double -> CaseState -> Browser CaseResult
-runPositions messages engine plans testCase started state = do
+runPositions :: IORef [String] -> Engine -> NetworkPlans -> Bool -> Int -> NetworkCase -> Double -> CaseState -> Browser CaseResult
+runPositions messages engine plans showcase tokenLimit testCase started state = do
     let position = statePosition state
         prompt = casePrompt testCase
         withHead = position >= length prompt - 1
@@ -600,13 +637,16 @@ runPositions messages engine plans testCase started state = do
         [prepared] -> pure prepared
         _ -> liftBrowser (fail "Missing or duplicate network plan variant")
     step <- execute engine plan position (Just token) Nothing
-    checked <- checkStep (caseName testCase) position step reference inputsMatch (stateErrors state)
+    checked <-
+        if showcase
+            then pure (stateErrors state)
+            else checkStep (caseName testCase) position step reference inputsMatch (stateErrors state)
     (selected, errors) <-
         if withHead
             then case (stepToken step, stepLogit step) of
                 (Just chosen, Just logit) -> do
                     require (validToken chosen && finite logit) "Invalid GPU head output"
-                    checkLogits step chosen logit
+                    unless showcase (checkLogits step chosen logit)
                     let expected = case drop (length (stateGenerated state)) (caseExpected testCase) of
                             current : _ -> Just current
                             [] -> Nothing
@@ -621,6 +661,7 @@ runPositions messages engine plans testCase started state = do
                                                 }
                                     Nothing -> checked
                             _ -> checked
+                    logMessage messages ("TOKEN " ++ show chosen)
                     logMessage messages (caseName testCase ++ " position " ++ show position ++ ": GPU token " ++ show chosen ++ "; C reference " ++ show expected ++ "; comparable history " ++ show inputsMatch ++ "; step " ++ show (stepMs step) ++ " ms")
                     pure (Just chosen, updated)
                 _ -> liftBrowser (fail "Missing GPU head output")
@@ -637,10 +678,10 @@ runPositions messages engine plans testCase started state = do
         prefillMs = if position == length prompt - 1 then now - started else statePrefillMs state
         executionMs = stateExecutionMs state + stepMs step
         next = CaseState (position + 1) selected inputsMatch generated errors prefillMs executionMs
-        stopped = length generated >= 10 || maybe False (`elem` [128009, 128001]) selected
+        stopped = length generated >= tokenLimit || maybe False (`elem` [128009, 128001]) selected
     if stopped
         then pure (CaseResult testCase (reverse generated) (position + 1) errors prefillMs (now - started) executionMs)
-        else runPositions messages engine plans testCase started next
+        else runPositions messages engine plans showcase tokenLimit testCase started next
 
 -- | Count positional token matches without making generation depend on them.
 matchingTokens :: CaseResult -> Int

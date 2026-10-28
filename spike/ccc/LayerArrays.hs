@@ -5,6 +5,7 @@ module LayerArrays (layerSource) where
 import qualified ArrayGraph
 import CCC
 import Compiler
+import Control.Monad (unless)
 import MicroHs.Expr (EDef)
 import MicroHs.TypeCheck (TModule)
 
@@ -16,26 +17,24 @@ floatExpression graph input = do
     pure result
 
 -- | Generate layer array operations from the checked numerical functions.
-layerSource :: TModule [EDef] -> ArrayGraph.Program -> Either String String
-layerSource checked softmax = do
-    square <- compileScalar checked "square"
+layerSource :: TModule [EDef] -> ArrayGraph.Program -> ArrayGraph.Program -> ArrayGraph.Program -> ArrayGraph.Program -> Either String String
+layerSource checked softmax rms residual gated = do
     plus <- compileFloatPair checked "plus"
     product <- compileFloatPair checked "product"
-    normalizer <- compileFloatPair checked "normalizer"
-    weighted <- compileFloatTriple checked "weighted"
-    reluMul <- compileFloatPair checked "reluMul"
     rotateFirst <- compileFloatQuadruple checked "rotateFirst"
     rotateSecond <- compileFloatQuadruple checked "rotateSecond"
-    softmaxPlan <- ArrayGraph.emitWorkgroup softmax 2048 "scores" "dimensions.x"
+    softmaxPlan <- ArrayGraph.emitWorkgroup softmax 2048 [(0, "scores")] "dimensions.x" "attn"
+    rmsPlan <- ArrayGraph.emitWorkgroup rms 6912 [(0, "inputs"), (1, "other")] "dimensions.x" "rms"
+    addPlan <- ArrayGraph.emitWorkgroup residual 6912 [(0, "inputs"), (1, "other")] "dimensions.x" "add"
+    gatedPlan <- ArrayGraph.emitWorkgroup gated 6912 [(0, "inputs"), (1, "other")] "dimensions.x" "gate"
+    unless (ArrayGraph.scratchVectors rmsPlan == 0 && ArrayGraph.scratchVectors addPlan == 0 && ArrayGraph.scratchVectors gatedPlan == 0) $
+        Left "RMSNorm, residual, and gated schedules must not allocate a full-length workgroup vector"
     let pair left right = PairCode (FloatCode left) (FloatCode right)
         triple first second third = PairCode (FloatCode first) (pair second third)
         quadruple first second third fourth = PairCode (FloatCode first) (triple second third fourth)
-    squared <- floatExpression square (FloatCode "inputs[index]")
-    sumSquares <- floatExpression plus (pair "total" "squared")
-    inverse <- floatExpression normalizer (pair "total" "f32(dimensions.x)")
-    normalized <- floatExpression weighted (triple "other[index]" "inputs[index]" "inverseRms")
-    residual <- floatExpression plus (pair "inputs[index]" "other[index]")
-    gated <- floatExpression reluMul (pair "inputs[index]" "other[index]")
+    rmsOutput <- ArrayGraph.outputAt rmsPlan "index"
+    addOutput <- ArrayGraph.outputAt addPlan "index"
+    gatedOutput <- ArrayGraph.outputAt gatedPlan "index"
     rotaryFirst <- floatExpression rotateFirst (quadruple "first" "second" "other[component * 2u]" "other[component * 2u + 1u]")
     rotarySecond <- floatExpression rotateSecond (quadruple "first" "second" "other[component * 2u]" "other[component * 2u + 1u]")
     dotElement <- floatExpression product (pair "inputs[head * dimensions.w + component]" "keys[position * kvDimension + kvHead * dimensions.w + component]")
@@ -54,33 +53,29 @@ layerSource checked softmax = do
                 , "@group(0) @binding(4) var<uniform> parameters: vec4<f32>;"
                 , "@group(0) @binding(5) var<storage, read> keys: array<f32>;"
                 , "@group(0) @binding(6) var<storage, read> values: array<f32>;"
-                , "var<workgroup> inverseRms: f32;"
                 , "var<workgroup> scores: array<f32, 2048>;"
                 ]
-            ++ unlines (ArrayGraph.declarations softmaxPlan)
+            ++ unlines (ArrayGraph.declarations softmaxPlan ++ ArrayGraph.declarations rmsPlan ++ ArrayGraph.declarations addPlan ++ ArrayGraph.declarations gatedPlan)
             ++ unlines
                 [ "@compute @workgroup_size(128)"
                 , "fn rmsnorm(@builtin(local_invocation_index) lane: u32) {"
                 , "  if (lane == 0u) {"
-                , "    var total = 0.0f;"
-                , "    for (var index = 0u; index < dimensions.x; index++) {"
-                , "      let squared = " ++ squared ++ ";"
-                , "      total = " ++ sumSquares ++ ";"
-                , "    }"
-                , "    inverseRms = " ++ inverse ++ ";"
-                , "  }"
+                ]
+            ++ unlines (map ("    " ++) (ArrayGraph.statements rmsPlan))
+            ++ unlines
+                [ "  }"
                 , "  workgroupBarrier();"
-                , "  for (var index = lane; index < dimensions.x; index += 128u) { output[index] = " ++ normalized ++ "; }"
+                , "  for (var index = lane; index < dimensions.x; index += 128u) { output[index] = " ++ rmsOutput ++ "; }"
                 , "}"
                 , "@compute @workgroup_size(128)"
                 , "fn add(@builtin(global_invocation_id) global: vec3<u32>) {"
                 , "  let index = global.x;"
-                , "  if (index < dimensions.x) { output[index] = " ++ residual ++ "; }"
+                , "  if (index < dimensions.x) { output[index] = " ++ addOutput ++ "; }"
                 , "}"
                 , "@compute @workgroup_size(128)"
                 , "fn gated(@builtin(global_invocation_id) global: vec3<u32>) {"
                 , "  let index = global.x;"
-                , "  if (index < dimensions.x) { output[index] = " ++ gated ++ "; }"
+                , "  if (index < dimensions.x) { output[index] = " ++ gatedOutput ++ "; }"
                 , "}"
                 , "@compute @workgroup_size(128)"
                 , "fn rope(@builtin(global_invocation_id) global: vec3<u32>) {"

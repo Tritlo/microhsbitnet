@@ -4,6 +4,7 @@ module HeadArrays (headSource) where
 
 import CCC
 import Compiler
+import FloatWGSL (softFloat)
 import MicroHs.Expr (EDef)
 import MicroHs.TypeCheck (TModule)
 
@@ -13,24 +14,24 @@ headSource checked = do
     multiply <- compileFloatPair checked "product"
     add <- compileFloatPair checked "plus"
     better <- compileFloatPredicate checked "better"
-    productCode <- emitWGSLRelaxed multiply (PairCode (FloatCode "weight") (FloatCode "hidden[column]"))
-    laneCode <- emitWGSLRelaxed add (PairCode (FloatCode "partial") (FloatCode "element"))
-    treeCode <- emitWGSLRelaxed add (PairCode (FloatCode "scratch[lane]") (FloatCode "scratch[lane + stride]"))
+    productCode <- emitBinary64 multiply (PairCode (FloatCode "f32_to_f64(bitcast<u32>(weight))") (FloatCode "f32_to_f64(bitcast<u32>(hidden[column]))"))
+    laneCode <- emitBinary64 add (PairCode (FloatCode "partial") (FloatCode "term"))
     laneChoice <- emitWGSLRelaxed better (PairCode (FloatCode "candidate") (FloatCode "best"))
     treeChoice <- emitWGSLRelaxed better (PairCode (FloatCode "scratch[lane + stride]") (FloatCode "scratch[lane]"))
     let FloatCode product = productCode
         FloatCode laneSum = laneCode
-        FloatCode treeSum = treeCode
         BoolCode chooseLane = laneChoice
         BoolCode chooseTree = treeChoice
     pure $
-        unlines
+        softFloat
+            ++ unlines
             [ "@group(0) @binding(0) var<storage, read> weights: array<u32>;"
             , "@group(0) @binding(1) var<storage, read> hidden: array<f32>;"
             , "@group(0) @binding(2) var<storage, read_write> logits: array<f32>;"
             , "@group(0) @binding(3) var<uniform> dimensions: vec4<u32>;"
             , "@group(0) @binding(4) var<storage, read_write> chosen: array<u32>;"
             , "var<workgroup> scratch: array<f32, 128>;"
+            , "var<workgroup> wide: array<vec2<u32>, 128>;"
             , "var<workgroup> indices: array<u32, 128>;"
             , "fn bf16(index: u32) -> f32 {"
             , "  let bits = (weights[index / 2u] >> (16u * (index % 2u))) & 65535u;"
@@ -44,19 +45,24 @@ headSource checked = do
             , "fn head(@builtin(workgroup_id) group: vec3<u32>, @builtin(local_invocation_index) lane: u32) {"
             , "  let row = group.x;"
             , "  if (row >= dimensions.y) { return; }"
-            , "  var partial = 0.0f;"
-            , "  for (var column = lane; column < dimensions.x; column += 128u) {"
-            , "    let weight = bf16(row * dimensions.x + column);"
-            , "    let element = " ++ product ++ ";"
-            , "    partial = " ++ laneSum ++ ";"
-            , "  }"
-            , "  scratch[lane] = partial;"
-            , "  workgroupBarrier();"
-            , "  for (var stride = 64u; stride > 0u; stride >>= 1u) {"
-            , "    if (lane < stride) { scratch[lane] = " ++ treeSum ++ "; }"
+            , "  var partial = vec2<u32>(0u, 0u);"
+            , "  for (var base = 0u; base < dimensions.x; base += 128u) {"
+            , "    var term = vec2<u32>(0u, 0u);"
+            , "    let column = base + lane;"
+            , "    if (column < dimensions.x) {"
+            , "      let weight = bf16(row * dimensions.x + column);"
+            , "      term = " ++ product ++ ";"
+            , "    }"
+            , "    wide[lane] = term;"
+            , "    workgroupBarrier();"
+            , "    if (lane == 0u) {"
+            , "      for (var offset = 0u; offset < 128u; offset++) {"
+            , "        if (base + offset < dimensions.x) { let term = wide[offset]; partial = " ++ laneSum ++ "; }"
+            , "      }"
+            , "    }"
             , "    workgroupBarrier();"
             , "  }"
-            , "  if (lane == 0u) { logits[dimensions.w + row] = scratch[0]; }"
+            , "  if (lane == 0u) { logits[dimensions.w + row] = bitcast<f32>(f64_to_f32(partial)); }"
             , "}"
             , "@compute @workgroup_size(128)"
             , "fn argmax(@builtin(local_invocation_index) lane: u32) {"
