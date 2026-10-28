@@ -3,6 +3,7 @@
 module Main (main) where
 
 import ArrayCompiler (compileArray)
+import Combinators (checkCombinators, kernelFloat1, kernelFloat2, translateArray)
 import qualified ArrayGraph
 import Arrays
 import BufferChecks (bufferCheckSource)
@@ -42,12 +43,16 @@ main = do
     rms <- either fail pure (compileArray arrayChecked "rmsNorm")
     residual <- either fail pure (compileArray arrayChecked "residual")
     gated <- either fail pure (compileArray arrayChecked "gated")
-    layerShader <- either fail pure (layerSource layerChecked softmax rms residual gated)
+    softmaxKernel <- either fail pure (translateArray 1 arrayChecked "softmax")
+    rmsKernel <- either fail pure (translateArray 2 arrayChecked "rmsNorm")
+    residualKernel <- either fail pure (translateArray 2 arrayChecked "residual")
+    gatedKernel <- either fail pure (translateArray 2 arrayChecked "gated")
+    layerShader <- either fail pure (layerSource layerChecked softmaxKernel rmsKernel residualKernel gatedKernel)
     headShader <- either fail pure (headSource layerChecked)
-    frequency <- either fail pure (compileFloatPair layerChecked "frequency")
-    multiply <- either fail pure (compileFloatPair layerChecked "product")
-    cosine <- either fail pure (compileScalar layerChecked "cosine")
-    sine <- either fail pure (compileScalar layerChecked "sine")
+    frequency <- either fail pure (kernelFloat2 layerChecked "frequency")
+    multiply <- either fail pure (kernelFloat2 layerChecked "product")
+    cosine <- either fail pure (kernelFloat1 layerChecked "cosine")
+    sine <- either fail pure (kernelFloat1 layerChecked "sine")
     frequencyCode <- either fail pure (emitC frequency (PairCode (FloatCode "(float)component") (FloatCode "128.0f")))
     angleCode <- either fail pure (emitC multiply (PairCode (FloatCode "(float)position") (FloatCode "frequency")))
     cosineCode <- either fail pure (emitC cosine (FloatCode "angle"))
@@ -80,6 +85,7 @@ main = do
     unless (case (addition, negation) of (Left Overflow, Left Overflow) -> True; _ -> False) $
         fail "Categorical Int32 overflow behavior differs from stock MicroHs"
     negativeChecks
+    checkCombinators checked layerChecked arrayChecked
     createDirectoryIfMissing True directory
     writeFile "bin/ccc-spike/generated.metal" shader
     writeFile "bin/ccc-spike/generated.wgsl" webShader

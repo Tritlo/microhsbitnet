@@ -3,7 +3,7 @@
 module HeadArrays (headSource) where
 
 import CCC
-import Compiler
+import Combinators (kernelBool, kernelFloat2)
 import FloatWGSL (softFloat)
 import MicroHs.Expr (EDef)
 import MicroHs.TypeCheck (TModule)
@@ -11,9 +11,9 @@ import MicroHs.TypeCheck (TModule)
 -- | Generate BF16 lookup, FP32 head reduction, and stable greedy selection.
 headSource :: TModule [EDef] -> Either String String
 headSource checked = do
-    multiply <- compileFloatPair checked "product"
-    add <- compileFloatPair checked "plus"
-    better <- compileFloatPredicate checked "better"
+    multiply <- kernelFloat2 checked "product"
+    add <- kernelFloat2 checked "plus"
+    better <- kernelBool checked "better"
     productCode <- emitBinary64 multiply (PairCode (FloatCode "f32_to_f64(bitcast<u32>(weight))") (FloatCode "f32_to_f64(bitcast<u32>(hidden[column]))"))
     laneCode <- emitBinary64 add (PairCode (FloatCode "partial") (FloatCode "term"))
     laneChoice <- emitWGSLRelaxed better (PairCode (FloatCode "candidate") (FloatCode "best"))

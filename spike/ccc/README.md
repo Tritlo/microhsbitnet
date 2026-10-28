@@ -15,6 +15,11 @@ machine that prepared this page, which has no physical GPU. The Apple M4
 figures later in this file are the previous kernels, not a measurement of the
 `exp32` and binary64 head changes.
 
+Numeric kernels are rebuilt from the combinator term MicroHs emits.
+[COMBINATORS.md](COMBINATORS.md) is the map from `S'`, `B`, `C`, and the rest
+of the basis onto the CCC arrows. `quantize` and the packed BitLinear
+reduction are the part that map does not cover yet.
+
 The target is a direct process: write numerical functions in MicroHs, compile
 their supported expressions, and execute the generated kernels. The experiment
 does not compile arbitrary Haskell to a GPU. It does not infer a complete array
