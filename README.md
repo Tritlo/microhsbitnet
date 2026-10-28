@@ -36,13 +36,17 @@ fetches weights from `microsoft/bitnet-b1.58-2B-4T` on Hugging Face. Swedish
 Swedish, with the native C tokens.
 
 What is source-derived: softmax, RMSNorm, residual add, and the squared-ReLU
-gate. Their loops come from `ArrayPrograms.hs`. BitLinear's quantize, trit
-contribution, and rescale expressions come from `Programs.hs`; the packed-row
-schedule is still an explicit template. Attention's score, softmax, and mix
-use source expressions inside one kernel template. The LM head multiplies and
-adds with the source operations, interpreted as a sequential binary64 dot so
-the argmax matches the C reference's double accumulator. The TypeScript file
-is the WebGPU binding, 355 lines, with no tensor schedule in it.
+gate. Their loops come from `ArrayPrograms.hs`, and the GPU graphs for those
+loops are read back out of the combinator term MicroHs emits. `S'` is
+`f ∘ ⟨g, h⟩`. The table is [spike/ccc/COMBINATORS.md](spike/ccc/COMBINATORS.md).
+BitLinear's quantize, trit contribution, and rescale still go through the
+expression compiler; the packed-row schedule is still a template, and the
+Scott-encoded `if` in the trit contribution is not a CCC arrow yet.
+Attention's score, softmax, and mix use those combinator arrows inside one
+kernel template. The LM head multiplies and adds with the same combinators,
+interpreted as a sequential binary64 dot so the argmax matches the C
+reference's double accumulator. The TypeScript file is the WebGPU binding,
+355 lines, with no tensor schedule in it.
 
 Limits, stated plainly: context is still 2048 positions because the attention
 scores live in workgroup memory. There is no CPU fallback. A browser without

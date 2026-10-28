@@ -4,7 +4,7 @@ module LayerArrays (layerSource) where
 
 import qualified ArrayGraph
 import CCC
-import Compiler
+import Combinators (kernelFloat2, kernelFloat4)
 import Control.Monad (unless)
 import MicroHs.Expr (EDef)
 import MicroHs.TypeCheck (TModule)
@@ -19,10 +19,10 @@ floatExpression graph input = do
 -- | Generate layer array operations from the checked numerical functions.
 layerSource :: TModule [EDef] -> ArrayGraph.Program -> ArrayGraph.Program -> ArrayGraph.Program -> ArrayGraph.Program -> Either String String
 layerSource checked softmax rms residual gated = do
-    plus <- compileFloatPair checked "plus"
-    product <- compileFloatPair checked "product"
-    rotateFirst <- compileFloatQuadruple checked "rotateFirst"
-    rotateSecond <- compileFloatQuadruple checked "rotateSecond"
+    plus <- kernelFloat2 checked "plus"
+    product <- kernelFloat2 checked "product"
+    rotateFirst <- kernelFloat4 checked "rotateFirst"
+    rotateSecond <- kernelFloat4 checked "rotateSecond"
     softmaxPlan <- ArrayGraph.emitWorkgroup softmax 2048 [(0, "scores")] "dimensions.x" "attn"
     rmsPlan <- ArrayGraph.emitWorkgroup rms 6912 [(0, "inputs"), (1, "other")] "dimensions.x" "rms"
     addPlan <- ArrayGraph.emitWorkgroup residual 6912 [(0, "inputs"), (1, "other")] "dimensions.x" "add"
