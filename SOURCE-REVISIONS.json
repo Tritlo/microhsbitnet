@@ -1,0 +1,31 @@
+{
+  "packagedAt": "2026-10-29T01:51:13.768Z",
+  "Combinate": {
+    "revision": "f49da8ba7e7ab83908e6291ddd59a21f57283ccf",
+    "branch": "codex/ccc-public-demo",
+    "dirty": false,
+    "status": [],
+    "source": "https://github.com/Tritlo/Combinate"
+  },
+  "microhsbitnet": {
+    "revision": "68aaecca9d8063161aed2d74e1c4cdd7ecb8f8d3",
+    "branch": "codex/ccc-public-demo",
+    "dirty": true,
+    "status": [
+      " M vendor/microhs"
+    ],
+    "source": "https://github.com/Tritlo/microhsbitnet"
+  },
+  "MicroHs": {
+    "revision": "e11ae213710d54c1954a9cb83ff97530c68d2488",
+    "branch": "HEAD",
+    "dirty": true,
+    "status": [
+      "?? mhs.conf"
+    ],
+    "source": "https://github.com/augustss/MicroHs",
+    "recordedSubmoduleRevision": "e11ae213710d54c1954a9cb83ff97530c68d2488"
+  },
+  "optionalModelRuntimeIncluded": true,
+  "modelWeightsIncluded": false
+}

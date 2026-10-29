@@ -1,0 +1,32 @@
+SOURCE AND LICENSE NOTICE
+
+Combinate rendering code and layouts: Matthias Pall Gissurarson.
+License: MIT. See LICENSES/Combinate-MIT.txt.
+Source: https://github.com/Tritlo/Combinate
+
+MicroHs compiler, runtime, and compiled library definitions: Lennart Augustsson
+and contributors. License: Apache-2.0. See LICENSES/MicroHs-Apache-2.0.txt.
+Source: https://github.com/augustss/MicroHs
+The compiled closure and model WebAssembly include MicroHs code.
+
+CCC compiler, example programs, and browser driver: microhsbitnet / BitNetComb.
+Source: https://github.com/Tritlo/microhsbitnet
+No top-level microhsbitnet license file was found in the source checkout.
+This package does not assert a project-wide license grant for that code or
+for the generated output.
+
+The model weights and tokenizer are not included. The optional model page
+fetches Microsoft's BitNet b1.58 2B4T deployment files from Hugging Face only
+after the user starts it. Those files have their own upstream terms.
+https://huggingface.co/microsoft/bitnet-b1.58-2B-4T
+
+SOURCE-REVISIONS.json records the actual revisions and dirty state.
+source.zip contains current on-disk files, including uncommitted changes in
+selected paths. It is a scoped source snapshot, not a complete repository.
+It contains tracked CCC files under spike/ccc, src, and cbits; root build and
+context files; all ccc-*.ts scripts and their local rendering dependencies;
+package locks; and the license notices. Other untracked files, model weights,
+build outputs, and the MicroHs source checkout are excluded.
+MicroHs source is available at its exact recorded revision. Its current dirty
+state is recorded, but its uncommitted files are not included in source.zip.
+This snapshot is not a claim of byte-identical builds across toolchains.
