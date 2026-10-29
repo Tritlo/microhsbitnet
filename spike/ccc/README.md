@@ -116,6 +116,26 @@ passes strict Pyright. Haskell changes pass Fourmolu. This project has no Cabal
 manifest to format. Pages has a root entry point and stays behind its manual
 deployment gate. No deployment was performed.
 
+## Published research demo, 2026-10-29
+
+Open the [program gallery and small GPU example](https://github.mpg.is/microhsbitnet/).
+The gallery includes paired compact and expanded iota trees, exact leaf
+inventories, source downloads, and the optional model page. The model page
+requires an explicit 1.18 GB download. The compiler remains a research path.
+
+GitHub Pages serves the verified static bundle from `codex/ccc-demo-pages`
+with HTTPS enforced. The published HTML and downloadable archive match the
+reviewed local files byte for byte. Public browser checks cover four scalar
+inputs on a physical M4 GPU, all 81 linked files, mobile layout, keyboard tabs,
+and the model page's idle download gate. The public page makes no external
+requests before the user starts the model experiment.
+
+The source is on `codex/ccc-public-demo` in this repository and in
+[Combinate](https://github.com/Tritlo/Combinate/tree/codex/ccc-public-demo).
+The static bundle records the exact source revisions used to build it.
+The existing `ccc-pages.yml` workflow builds the separate full-model page.
+It does not package this gallery.
+
 ## Compilation process
 
 ### 1. Keep the numerical source and control program separate
