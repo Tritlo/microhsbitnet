@@ -36,6 +36,17 @@ the former 1% error target is not met.
 - [Source map and modification workflow](#source-map-and-modification-workflow)
 - [Troubleshooting](#troubleshooting)
 
+## Public showcase check, 2026-10-29
+
+The opt-in showcase completed all five prompts on Apple M4 with Chrome
+`156.0.8078.49` and a physical `apple metal-3` adapter. It generated 76 tokens
+across 216 positions with a 24-token limit per prompt. The check used the local
+verified model checkpoint and the pinned remote tokenizer. It exercised the
+start button, GPU initialization, model range loading, and generation. Total
+driver time was 68.31 seconds. This run did not compare C-reference outputs.
+The earlier 1% numerical error target still fails. The result is recorded in
+`bin/ccc-spike/demo-result.json`.
+
 ## Physical WebGPU review, 2026-10-28
 
 The unchanged base (`1272453`), PRs #2 and #3 (`75d5f43`), and the reviewed
