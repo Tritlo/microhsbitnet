@@ -11,6 +11,8 @@
     p { margin: 0.8rem 0; }
     .muted { color: var(--muted); }
     a { color: var(--accent); }
+    button { padding: 0.65rem 1rem; border: 0; border-radius: 0.35rem; background: var(--accent); color: #16130f; font: inherit; cursor: pointer; }
+    button:disabled { opacity: 0.6; cursor: default; }
     #status { min-height: 1.5rem; }
     .track { height: 0.45rem; background: #2a261f; border-radius: 99px; overflow: hidden; margin: 0.8rem 0 1.2rem; }
     #bar { height: 100%; width: 0; background: var(--accent); }
@@ -19,11 +21,14 @@
     pre { white-space: pre-wrap; font: 0.8rem/1.4 ui-monospace, Menlo, Consolas, monospace; }
   </style>
   <main>
+    <p><a href="../../index.html">Back to the gallery</a></p>
     <h1>A 2B BitNet, in a browser tab, in Haskell.</h1>
     <p>The model math is Haskell. A small compiler turns that Haskell into a GPU kernel. The loop that feeds the kernel is Haskell too, compiled by MicroHs to C and then to WebAssembly. The page only supplies WebGPU.</p>
-    <p class="muted">Weights stream from Hugging Face (about 1.18 GB). The first tokens arrive after the upload. This page does not run without WebGPU, and it does not pretend a missing GPU is a pass.</p>
-    <p id="status">Starting…</p>
-    <div id="progress" class="muted">Waiting for the GPU</div>
+    <p class="muted">Starting downloads 1.18 GB of model weights (1,178,623,988 bytes), plus the tokenizer, from Hugging Face. A physical WebGPU adapter and several GB of available memory are required. Tested on Apple M4 with Chrome 156.</p>
+    <p class="muted">Research demo: the six-prompt reference check matched 52/52 tokens, but its 1% numerical error target still fails. This page runs five fixed prompts.</p>
+    <button id="start-demo" type="button">Download 1.18 GB and start</button>
+    <p id="status">Ready when you are.</p>
+    <div id="progress" class="muted">Weights have not loaded</div>
     <div class="track" aria-hidden="true"><div id="bar"></div></div>
     <div id="transcript" aria-live="polite"></div>
     <details>

@@ -93,8 +93,13 @@ make -C spike/ccc numeric-check
 The check writes `bin/ccc-spike/web-result.json`. The showcase writes
 `bin/ccc-spike/demo-result.json`; it does not replace the reference artifact.
 Without C references, showcase comparison fields are `null`. The direct
-`web/demo.html` URL selects showcase mode. UTF-8 decoding retains partial
-characters between tokens. The tokenizer must load before generation starts.
+`web/demo.html` URL selects showcase mode. Select the start button to permit
+the 1.18 GB model download. The page checks the GPU before it fetches the
+tokenizer. Both Hugging Face assets use revision
+`04c3b9ad9361b824064a1f25ea60a8be9599b127`. The automated showcase check selects
+the same button. The reference check starts automatically. UTF-8 decoding
+retains partial characters between tokens. The tokenizer must load before
+generation starts.
 The strict TypeScript build and focused display checks pass. The Python check
 passes strict Pyright. Haskell changes pass Fourmolu. This project has no Cabal
 manifest to format. Pages has a root entry point and stays behind its manual

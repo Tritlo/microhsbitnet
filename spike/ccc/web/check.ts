@@ -77,6 +77,7 @@ try {
   const pageName = process.env.DEMO === "1" ? "demo.html" : "index.html";
   if (process.env.DEMO === "1") query.set("demo", "1");
   await page.goto(`http://127.0.0.1:${address.port}/web/${pageName}?${query}`);
+  if (process.env.DEMO === "1") await page.locator("#start-demo").click();
   await page.waitForFunction(() => (globalThis as unknown as { microhsCheck?: unknown }).microhsCheck !== undefined, undefined, { timeout: 600_000 });
   const result = await page.evaluate(() => (globalThis as unknown as { microhsCheck?: { passed: boolean; error?: string; [key: string]: unknown } }).microhsCheck);
   const resultFile = process.env.DEMO === "1" ? "demo-result.json" : "web-result.json";

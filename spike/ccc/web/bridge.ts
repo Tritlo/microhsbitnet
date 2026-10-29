@@ -97,7 +97,7 @@ function failure(reason: unknown): void {
   const error = reason instanceof Error ? reason.stack ?? reason.message : String(reason);
   log(error);
   const status = document.querySelector("#status");
-  if (status) status.textContent = error;
+  if (status) status.textContent = reason instanceof Error ? reason.message : String(reason);
   publish({ passed: false, error });
 }
 
@@ -137,6 +137,8 @@ async function initialize(): Promise<unknown> {
     const adapter = await navigator.gpu.requestAdapter({ powerPreference: "high-performance" });
     if (!adapter) throw new Error("No WebGPU adapter");
     const info = adapter.info;
+    const description = [info.vendor, info.architecture, info.device, info.description].join(" ").toLowerCase();
+    if (info.isFallbackAdapter || ["swiftshader", "llvmpipe", "software"].some((name) => description.includes(name))) throw new Error("A physical WebGPU adapter is required.");
     adapterDescription = { vendor: info.vendor, architecture: info.architecture, device: info.device, description: info.description, isFallbackAdapter: info.isFallbackAdapter };
     device = await adapter.requestDevice();
     device.addEventListener("uncapturederror", (event: GPUUncapturedErrorEvent) => failure(new Error(`WebGPU: ${event.error.message}`)));
@@ -147,7 +149,7 @@ async function initialize(): Promise<unknown> {
   const showcase = demoMode;
   const model =
     params.get("model") ??
-    (showcase ? "https://huggingface.co/microsoft/bitnet-b1.58-2B-4T/resolve/main/model.safetensors" : "/model.safetensors");
+    (showcase ? "https://huggingface.co/microsoft/bitnet-b1.58-2B-4T/resolve/04c3b9ad9361b824064a1f25ea60a8be9599b127/model.safetensors" : "/model.safetensors");
   return { adapter: adapterDescription, maxBufferSize, maxStorageBufferBindingSize, maxUniformBufferBindingSize, maxComputeWorkgroupsPerDimension, mode: showcase ? "demo" : "check", model };
 }
 
@@ -158,9 +160,22 @@ async function perform(fields: BrowserRequest): Promise<unknown> {
     case "fetch": {
       const [, key, url, start, count] = fields;
       const response = await fetch(url, { signal: abort.signal, headers: start >= 0 ? { Range: `bytes=${start}-${start + count - 1}` } : {} });
+      const contentRange = response.headers.get("Content-Range");
+      if (start >= 0) {
+        const prefix = `bytes ${start}-${start + count - 1}/`;
+        const totalText = contentRange?.startsWith(prefix) ? contentRange.slice(prefix.length) : "";
+        const total = Number(totalText);
+        if (response.status !== 206 || !/^\d+$/.test(totalText) || !Number.isSafeInteger(total) || total < start + count) {
+          await response.body?.cancel();
+          throw new Error("HTTP range response differs.");
+        }
+      } else if (response.status !== 200) {
+        await response.body?.cancel();
+        throw new Error(`Download failed: HTTP ${response.status}`);
+      }
       const data = await response.arrayBuffer();
       objects[key] = data;
-      return { length: data.byteLength, status: response.status, contentRange: response.headers.get("Content-Range") };
+      return { length: data.byteLength, status: response.status, contentRange };
     }
     case "text":
       return new TextDecoder("utf-8", { fatal: true }).decode(objects[fields[1]] as ArrayBuffer);
@@ -331,7 +346,7 @@ function decodeToken(id: number): string {
 
 async function loadDecoder(): Promise<void> {
   if (!demoMode) return;
-  const response = await fetch("https://huggingface.co/microsoft/bitnet-b1.58-2B-4T/resolve/main/tokenizer.json");
+  const response = await fetch("https://huggingface.co/microsoft/bitnet-b1.58-2B-4T/resolve/04c3b9ad9361b824064a1f25ea60a8be9599b127/tokenizer.json", { signal: abort.signal });
   if (!response.ok) throw new Error(`Tokenizer download failed: HTTP ${response.status}`);
   const tokenizer = (await response.json()) as { model?: { vocab?: Record<string, number> }; added_tokens?: { id: number; content: string }[] };
   const vocab = tokenizer.model?.vocab ?? {};
@@ -346,14 +361,17 @@ async function loadDecoder(): Promise<void> {
 
 async function start(): Promise<void> {
   if (!navigator.gpu) {
-    const message = "This browser has no WebGPU. The model runs in the page only where WebGPU is available (current Chrome or Edge on Linux, Windows, or Mac). There is no CPU fallback.";
+    const message = "WebGPU is unavailable in this browser.";
     log(message);
     const status = document.querySelector("#status");
     if (status) status.textContent = message;
     publish({ passed: false, error: message });
     return;
   }
-  if (demoMode) await loadDecoder();
+  if (demoMode) {
+    await initialize();
+    await loadDecoder();
+  }
   const modulePath = "./microhs.mjs";
   const createMicroHs = (await import(modulePath)).default as (options: { print(message: string): void; printErr(message: string): void }) => Promise<WasmModule>;
   wasm = await createMicroHs({ print: log, printErr: log });
@@ -363,6 +381,15 @@ async function start(): Promise<void> {
   enter(() => { module._mhs_init(); module._gpuMain(); });
 }
 
-void start().catch(failure);
+if (demoMode) {
+  const button = document.querySelector<HTMLButtonElement>("#start-demo");
+  if (!button) failure(new Error("The demo start button is missing."));
+  else button.addEventListener("click", () => {
+    button.disabled = true;
+    const status = document.querySelector("#status");
+    if (status) status.textContent = "Checking GPU…";
+    void start().catch(failure);
+  }, { once: true });
+} else void start().catch(failure);
 
 export {};
