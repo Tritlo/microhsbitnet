@@ -311,7 +311,13 @@ from the direct-combinator graph. The trit contribution uses the expression
 compiler. Squares in the pictures retain numeric method references, array-function
 references, concrete typeclass dictionaries, and literals. Their implementations
 and transitive dependencies are not expanded into iota. The preview lists each
-retained symbol and its occurrence count.
+retained symbol and its occurrence count. A second H-tree view expands all
+reachable compiler definitions, including dictionary and array-function bodies.
+Runtime primitives, foreign calls, and typed literals remain named. Recursive
+groups use finite `Y` and tuple terms. The JSON includes qualified entry roots
+and the complete reachable closure as structured expressions. Counts describe
+syntax, including unused dictionary methods and error paths. They do not describe
+executed GPU instructions.
 
 Use the renderer in the adjacent `Combinate-ccc-demo` checkout:
 

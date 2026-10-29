@@ -9,12 +9,14 @@ import Compiler (compileIntPair)
 import Data.List (isPrefixOf)
 import FloatWGSL (wgslPrelude)
 import Frontend (checkedModule)
+import GraphicsClosure (compilerClosure)
 import MicroHs.Expr (EDef)
-import MicroHs.TypeCheck (TModule)
+import MicroHs.Ident (mkIdent, qualIdent, showIdent)
+import MicroHs.TypeCheck (TModule, tModuleName)
 import System.Directory (createDirectoryIfMissing)
 import System.Environment (getArgs)
 import System.FilePath (takeDirectory)
-import WebJSON (JSON (..), renderJSON)
+import WebJSON (JSON (..), asString, field, renderJSON)
 
 -- | Export the source, compiler terms, graphs, and WGSL for eight functions.
 main :: IO ()
@@ -50,8 +52,9 @@ main = do
             , floatEntry "spike/ccc/LayerPrograms.hs" layers "frequency" "Rotary frequency" frequency (PairCode (FloatCode "index") (FloatCode "headDimension"))
             , sourceEntry "spike/ccc/Programs.hs" programs "contribution" "Trit contribution" (showCat contribution) contributionWGSL
             ]
+    closure <- compilerClosure [asString (field "root" entry) | entry <- entries]
     createDirectoryIfMissing True (takeDirectory output)
-    writeFile output (renderJSON (JObject [("entries", JArray entries), ("scalarShader", JString shader)]) ++ "\n")
+    writeFile output (renderJSON (JObject [("entries", JArray entries), ("scalarShader", JString shader), ("closure", closure)]) ++ "\n")
     putStrLn ("Exported " ++ show (length entries) ++ " source entries to " ++ output)
 
 -- | Emit the direct-combinator scalar graph as a complete compute shader.
@@ -102,6 +105,7 @@ sourceEntry file checked name label graph shader = do
         JObject
             [ ("id", JString name)
             , ("label", JString label)
+            , ("root", JString (showIdent (qualIdent (tModuleName checked) (mkIdent name))))
             , ("source", JString snippet)
             , ("sourceFile", JString file)
             , ("combinators", JString term)

@@ -28,7 +28,7 @@ numeric-check:
 graphics-data: $(BUILD)/graphics-data
 	cd $(ROOT) && bin/ccc-spike/graphics-data bin/ccc-spike/graphics-data.json
 
-$(BUILD)/graphics-data: Graphics.hs Frontend.hs Combinators.hs Compiler.hs CCC.hs FloatWGSL.hs float_soft.wgsl ArrayCompiler.hs ArrayGraph.hs ArrayPrograms.hs SourceArray.hs Programs.hs LayerPrograms.hs WebJSON.hs
+$(BUILD)/graphics-data: Graphics.hs GraphicsClosure.hs Frontend.hs Combinators.hs Compiler.hs CCC.hs FloatWGSL.hs float_soft.wgsl ArrayCompiler.hs ArrayGraph.hs ArrayPrograms.hs SourceArray.hs Programs.hs LayerPrograms.hs WebJSON.hs
 	@mkdir -p $(BUILD)/graphics-ghc
 	$(GHC) $(GHCFLAGS) -outputdir $(BUILD)/graphics-ghc Graphics.hs -o $@
 
